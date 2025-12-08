@@ -67,7 +67,7 @@
 
 1. Clone the repo:
    ```bash
-   git clone [https://github.com/gordonsay/Context-Carry.git](https://github.com/gordonsay/Context-Carry.git)
+   git clone https://github.com/gordonsay/Context-Carry.git
 
 ---
 
