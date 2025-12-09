@@ -2,7 +2,7 @@
     "manifest_version": 3,
     "name": "Context-Carry - AI Conversation Transfer",
     "version": "1.0",
-    "description": "Select messages from ChatGPT, Claude, Gemini, or Grok and transfer them as context to a new AI chat.",
+    "description": "Stop losing context! Export chat history from ChatGPT, Claude, Gemini & Grok. Seamless Cross-LLM transfer & prompt management.",
     "permissions": [
         "activeTab",
         "scripting"
