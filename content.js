@@ -19,25 +19,32 @@
     /* =========================================
        1. Language dictionary and settings
     ========================================= */
+    const PLATFORMS = [
+        { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com/?model=gpt-4o', icon: '🤖' },
+        { id: 'claude', name: 'Claude', url: 'https://claude.ai/new', icon: '🧠' },
+        { id: 'gemini', name: 'Gemini', url: 'https://gemini.google.com/app', icon: '💎' },
+        { id: 'grok', name: 'Grok', url: 'https://grok.com', icon: '✖️' }
+    ];
+
     const APP_CONFIG = {
         'chatgpt.com': {
             msgSelector: 'article',
-            newChatUrl: 'https://chatgpt.com/?model=gpt-4o',
+            inputSelector: '#prompt-textarea',
             ignore: '.sr-only, button, .cb-buttons'
         },
         'google.com': {
             msgSelector: 'user-query, model-response',
-            newChatUrl: 'https://gemini.google.com/app',
+            inputSelector: 'div[contenteditable="true"], .rich-textarea, textarea',
             ignore: '.mat-icon, .action-button, .button-label, .botones-acciones'
         },
         'claude.ai': {
             msgSelector: 'div[data-testid="user-message"], div.font-claude-response',
-            newChatUrl: 'https://claude.ai/new',
+            inputSelector: 'div[contenteditable="true"]',
             ignore: 'button, .copy-icon, [data-testid="chat-message-actions"], .cursor-pointer'
         },
         'grok': {
             msgSelector: '.message-bubble',
-            newChatUrl: 'https://grok.com',
+            inputSelector: 'textarea, div[contenteditable="true"]',
             ignore: 'svg, span[role="button"], .action-buttons'
         }
     };
@@ -52,13 +59,15 @@
             btn_scan: '重新掃描頁面',
             btn_scan_done: '已重新掃描',
             btn_dl: '輸出為 .txt',
-            btn_transfer: '轉移到新對話',
+            btn_copy: '複製到剪貼簿',
+            label_transfer: '轉移並開啟 (Cross-LLM):',
             msg_detected: '偵測到 {n} 則訊息',
             msg_selected: '已選取: {n} 則',
             alert_no_selection: '請先選取對話！',
-            alert_copy_success: '內容已複製！\n\n即將開啟新視窗，請在新視窗對話框按「Ctrl+V」貼上。\n\n要繼續嗎？',
-            alert_copy_fail: '複製失敗，請檢查瀏覽器權限',
+            alert_copy_done: '內容已複製！',
+            alert_fail: '操作失敗，請檢查權限',
             btn_add_title: '加入此段落',
+            toast_autofill: 'Context-Carry: 已自動填入轉移內容 ✨',
             default_prompt: `[SYSTEM: CONTEXT TRANSFER]\n以下是使用者篩選的對話歷史，請以此為背景繼續對話：`
         },
         'en': {
@@ -70,13 +79,15 @@
             btn_scan: 'Rescan Page',
             btn_scan_done: 'Scanned',
             btn_dl: 'Export to .txt',
-            btn_transfer: 'Transfer to New Chat',
+            btn_copy: 'Copy to Clipboard',
+            label_transfer: 'Transfer to (Cross-LLM):',
             msg_detected: 'Detected {n} messages',
             msg_selected: 'Selected: {n}',
             alert_no_selection: 'Please select messages first!',
-            alert_copy_success: 'Copied!\n\nOpening new window. Press "Ctrl+V" to paste.\n\nContinue?',
-            alert_copy_fail: 'Copy failed. Check permissions.',
+            alert_copy_done: 'Content copied!',
+            alert_fail: 'Operation failed. Check permissions.',
             btn_add_title: 'Add this block',
+            toast_autofill: 'Context-Carry: Content Auto-filled ✨',
             default_prompt: `[SYSTEM: CONTEXT TRANSFER]\nThe following is the conversation history selected by the user. Please use this as context to continue the conversation:`
         }
     };
@@ -91,7 +102,7 @@
     else if (host.includes('google')) config = APP_CONFIG['google.com'];
     else if (host.includes('claude')) config = APP_CONFIG['claude.ai'];
     else if (host.includes('x.com') || host.includes('grok.com')) config = APP_CONFIG['grok'];
-    
+
     window.ccManager.config = config;
 
     if (!config) return;
@@ -108,7 +119,9 @@
         createPanel();
         performScan();
         window.ccManager.interval = setInterval(performScan, 3000);
+        checkAutoFill();
     }
+
     function closeInterface() {
         if (!window.ccManager.active) return;
         window.ccManager.active = false;
@@ -122,13 +135,11 @@
         if (panel) panel.remove();
         document.querySelectorAll('.cc-btn').forEach(e => e.remove());
         const processedElements = document.querySelectorAll('[data-cc-padding]');
-        
+
         processedElements.forEach(el => {
             el.style.paddingLeft = '';
             const isSelected = el.dataset.ccSelected === 'true';
-            const hasGreenOutline = el.style.outline.includes('4CAF50') || el.style.outline.includes('76, 175, 80');
-            
-            if (isSelected || hasGreenOutline) {
+            if (isSelected || el.style.outline.includes('4CAF50')) {
                 el.style.outline = '';
                 el.style.outlineOffset = '';
                 el.style.backgroundColor = el.dataset.originalBg || '';
@@ -151,7 +162,7 @@
     /* =========================================
        4. UI Construction
     ========================================= */
-    let title, msg, prefixLabel, prefixInput, btnDl, btnTransfer, btnScan;
+    let title, msg, prefixLabel, prefixInput, btnDl, btnCopy, btnScan, transferLabel, transferContainer;
 
     function createPanel() {
         if (document.getElementById('cc-panel')) return;
@@ -165,7 +176,7 @@
             position: 'fixed', top: '80px', right: '20px', zIndex: '2147483647',
             background: '#1e1e1e', color: '#fff', padding: '16px', borderRadius: '12px',
             boxShadow: '0 4px 20px rgba(0,0,0,0.5)', fontFamily: 'sans-serif',
-            width: '260px', border: '1px solid #444', textAlign: 'left', display: 'flex', flexDirection: 'column'
+            width: '280px', border: '1px solid #444', textAlign: 'left', display: 'flex', flexDirection: 'column'
         });
 
         // Header
@@ -180,13 +191,11 @@
 
         const langBtn = document.createElement('button');
         langBtn.innerText = '🌐 中/En';
-        langBtn.title = 'Switch Language';
         Object.assign(langBtn.style, { background: 'transparent', border: '1px solid #555', color: '#aaa', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', padding: '2px 6px', marginRight: '8px' });
-        
+
         langBtn.onclick = function () {
             const oldLang = window.ccManager.lang;
             const newLang = oldLang === 'zh' ? 'en' : 'zh';
-            
             const currentInput = prefixInput.value.trim();
             const oldDefault = LANG_DATA[oldLang].default_prompt.trim();
             if (currentInput === oldDefault) {
@@ -200,22 +209,20 @@
 
         const closeBtn = document.createElement('button');
         closeBtn.innerHTML = '&times;';
-        closeBtn.title = 'Close';
         Object.assign(closeBtn.style, {
-            background: 'transparent', border: 'none', color: '#888', 
+            background: 'transparent', border: 'none', color: '#888',
             cursor: 'pointer', fontSize: '18px', padding: '0 4px', lineHeight: '1'
         });
-        closeBtn.onmouseover = () => closeBtn.style.color = '#fff';
-        closeBtn.onmouseout = () => closeBtn.style.color = '#888';
         closeBtn.onclick = closeInterface;
 
         header.append(title, langBtn, closeBtn);
 
-        // Body
+        // Status Message
         msg = document.createElement('div');
         msg.innerText = t.status_scanning;
         Object.assign(msg.style, { fontSize: '12px', color: '#aaa', marginBottom: '12px' });
 
+        // Prompt Input
         prefixLabel = document.createElement('div');
         prefixLabel.innerText = t.label_prefix;
         Object.assign(prefixLabel.style, { fontSize: '12px', color: '#ccc', marginBottom: '6px', fontWeight: 'bold' });
@@ -225,41 +232,69 @@
         prefixInput.value = t.default_prompt;
         prefixInput.placeholder = t.placeholder;
         Object.assign(prefixInput.style, {
-            width: '100%', height: '150px', background: '#333', color: '#eee',
+            width: '100%', height: '120px', background: '#333', color: '#eee',
             border: '1px solid #555', borderRadius: '6px', padding: '8px',
             marginBottom: '12px', fontFamily: 'sans-serif', fontSize: '12px',
             resize: 'vertical', boxSizing: 'border-box'
         });
 
-        function createBtn(textKey, id, bg, extraStyle = {}) {
+        // Basic Actions Row (Download & Copy)
+        const actionRow = document.createElement('div');
+        Object.assign(actionRow.style, { display: 'flex', gap: '8px', marginBottom: '12px' });
+
+        function createBtn(textKey, bg, onClick) {
             const b = document.createElement('button');
-            b.id = id;
             b.innerText = t[textKey];
+            b.dataset.key = textKey; // for updateUITexts
             Object.assign(b.style, {
-                width: '100%', background: bg, color: '#fff', border: 'none',
-                padding: '8px', borderRadius: '6px', cursor: 'pointer', marginBottom: '8px',
-                fontSize: '13px', ...extraStyle
+                flex: '1', background: bg, color: '#fff', border: 'none',
+                padding: '8px', borderRadius: '6px', cursor: 'pointer',
+                fontSize: '12px', fontWeight: 'bold'
             });
+            b.onclick = onClick;
             return b;
         }
 
-        btnDl = createBtn('btn_dl', 'cc-dl', '#2E7D32', { fontWeight: 'bold' });
-        btnTransfer = createBtn('btn_transfer', 'cc-transfer', '#1565C0', { fontWeight: 'bold' });
-        
+        btnDl = createBtn('btn_dl', '#2E7D32', handleDownload);
+        btnCopy = createBtn('btn_copy', '#555', handleCopyOnly);
+        actionRow.append(btnDl, btnCopy);
+
+        // Transfer Label
+        transferLabel = document.createElement('div');
+        transferLabel.innerText = t.label_transfer;
+        Object.assign(transferLabel.style, { fontSize: '12px', color: '#ccc', marginBottom: '6px', fontWeight: 'bold' });
+
+        // Cross-LLM Buttons Row
+        transferContainer = document.createElement('div');
+        Object.assign(transferContainer.style, { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '6px', marginBottom: '8px' });
+
+        PLATFORMS.forEach(p => {
+            const btn = document.createElement('button');
+            btn.innerHTML = `${p.icon} <br/> ${p.name}`;
+            btn.title = `Transfer to ${p.name}`;
+            Object.assign(btn.style, {
+                background: '#333', border: '1px solid #555', color: '#fff',
+                padding: '6px 2px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px'
+            });
+            btn.onmouseover = () => btn.style.borderColor = '#1565C0';
+            btn.onmouseout = () => btn.style.borderColor = '#555';
+            btn.onclick = () => handleCrossTransfer(p.url);
+
+            transferContainer.appendChild(btn);
+        });
+
         const hr = document.createElement('hr');
         Object.assign(hr.style, { border: '0', borderTop: '1px solid #333', margin: '8px 0', width: '100%' });
-        
-        btnScan = createBtn('btn_scan', 'cc-scan', '#444', { border: '1px solid #666', fontSize: '12px', padding: '6px' });
 
-        btnDl.onclick = handleDownload;
-        btnTransfer.onclick = handleTransfer;
-        btnScan.onclick = function () {
+        btnScan = createBtn('btn_scan', '#444', function () {
             performScan();
             this.innerText = LANG_DATA[window.ccManager.lang].btn_scan_done;
             setTimeout(() => this.innerText = LANG_DATA[window.ccManager.lang].btn_scan, 1000);
-        };
+        });
+        btnScan.style.border = '1px solid #666';
 
-        panel.append(header, msg, prefixLabel, prefixInput, btnDl, btnTransfer, hr, btnScan);
+        panel.append(header, msg, prefixLabel, prefixInput, actionRow, transferLabel, transferContainer, hr, btnScan);
         document.body.appendChild(panel);
     }
 
@@ -275,8 +310,8 @@
     function updateUITexts() {
         const curLang = window.ccManager.lang;
         const t = LANG_DATA[curLang];
-        
-        if(title) title.innerText = t.title;
+
+        if (title) title.innerText = t.title;
 
         if (msg) {
             if (!msg.innerText.includes('Selected') && !msg.innerText.includes('選取')) {
@@ -286,11 +321,12 @@
             if (selectedCount > 0) msg.innerText = t.msg_selected.replace('{n}', selectedCount);
         }
 
-        if(prefixLabel) prefixLabel.innerText = t.label_prefix;
-        if(prefixInput) prefixInput.placeholder = t.placeholder;
-        if(btnDl) btnDl.innerText = t.btn_dl;
-        if(btnTransfer) btnTransfer.innerText = t.btn_transfer;
-        if(btnScan) btnScan.innerText = t.btn_scan;
+        if (prefixLabel) prefixLabel.innerText = t.label_prefix;
+        if (prefixInput) prefixInput.placeholder = t.placeholder;
+        if (btnDl) btnDl.innerText = t.btn_dl;
+        if (btnCopy) btnCopy.innerText = t.btn_copy;
+        if (transferLabel) transferLabel.innerText = t.label_transfer;
+        if (btnScan) btnScan.innerText = t.btn_scan;
 
         document.querySelectorAll('.cc-btn').forEach(b => {
             if (b.innerText === '➕') b.title = t.btn_add_title;
@@ -355,7 +391,7 @@
                     this.style.color = '#fff';
                     this.style.borderColor = '#4CAF50';
                     this.dataset.selected = 'true';
-                    el.dataset.ccSelected = 'true'; 
+                    el.dataset.ccSelected = 'true';
 
                     el.style.outline = '2px solid #4CAF50';
                     el.style.outlineOffset = '-2px';
@@ -402,7 +438,6 @@
         selected.forEach(btn => {
             const parent = btn.parentElement;
             const clone = parent.cloneNode(true);
-
             const myBtn = clone.querySelector('.cc-btn');
             if (myBtn) myBtn.remove();
             if (config.ignore) {
@@ -430,16 +465,107 @@
         URL.revokeObjectURL(url);
     }
 
-    function handleTransfer() {
+    function handleCopyOnly() {
         const curLang = window.ccManager.lang;
         const t = LANG_DATA[curLang];
         const text = getSelectedText();
         if (!text) { alert(t.alert_no_selection); return; }
         navigator.clipboard.writeText(text).then(() => {
-            if (confirm(t.alert_copy_success)) {
-                window.open(config.newChatUrl, '_blank');
+            alert(t.alert_copy_done);
+        }).catch(err => alert(t.alert_fail));
+    }
+
+    function handleCrossTransfer(targetUrl) {
+        const curLang = window.ccManager.lang;
+        const t = LANG_DATA[curLang];
+        const text = getSelectedText();
+        if (!text) { alert(t.alert_no_selection); return; }
+
+        navigator.clipboard.writeText(text).catch(() => { });
+
+        try {
+            chrome.storage.local.set({
+                'cc_transfer_payload': {
+                    text: text,
+                    timestamp: Date.now(),
+                    source: window.location.hostname
+                }
+            }, () => {
+                window.open(targetUrl, '_blank');
+            });
+        } catch (e) {
+            console.error("Storage Error:", e);
+            alert("Storage access failed. Please update extension permissions.");
+            window.open(targetUrl, '_blank');
+        }
+    }
+
+    /* =========================================
+       6. Receiver Logic (Auto-Fill)
+    ========================================= */
+    function checkAutoFill() {
+        if (!chrome.storage) return;
+
+        chrome.storage.local.get(['cc_transfer_payload'], (result) => {
+            const data = result.cc_transfer_payload;
+            if (data && (Date.now() - data.timestamp < 30000)) {
+
+                console.log("Context-Carry: Found transfer data from " + data.source);
+                let attempts = 0;
+                const maxAttempts = 20;
+
+                const fillInterval = setInterval(() => {
+                    const inputEl = document.querySelector(config.inputSelector);
+                    if (inputEl) {
+                        clearInterval(fillInterval);
+                        autoFillInput(inputEl, data.text);
+                        chrome.storage.local.remove('cc_transfer_payload');
+                        showToast(LANG_DATA[window.ccManager.lang].toast_autofill);
+                    } else {
+                        attempts++;
+                        if (attempts >= maxAttempts) {
+                            clearInterval(fillInterval);
+                            console.log("Context-Carry: Timeout waiting for input box.");
+                        }
+                    }
+                }, 500);
             }
-        }).catch(err => alert(t.alert_copy_fail));
+        });
+    }
+
+    function autoFillInput(element, text) {
+        element.focus();
+        if (element.contentEditable === "true") {
+            element.textContent = text;
+        } else {
+            element.value = text;
+        }
+
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+        const originalBg = element.style.backgroundColor;
+        element.style.transition = "background-color 0.5s";
+        element.style.backgroundColor = "rgba(76, 175, 80, 0.2)";
+        setTimeout(() => {
+            element.style.backgroundColor = originalBg;
+        }, 1000);
+    }
+
+    function showToast(message) {
+        const toast = document.createElement('div');
+        toast.innerText = message;
+        Object.assign(toast.style, {
+            position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+            background: '#333', color: '#fff', padding: '10px 20px', borderRadius: '20px',
+            zIndex: '2147483647', boxShadow: '0 4px 10px rgba(0,0,0,0.3)', fontSize: '14px',
+            opacity: '0', transition: 'opacity 0.3s'
+        });
+        document.body.appendChild(toast);
+        requestAnimationFrame(() => toast.style.opacity = '1');
+        setTimeout(() => {
+            toast.style.opacity = '0';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
     }
 
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -448,6 +574,6 @@
         }
     });
 
-    openInterface();
+    checkAutoFill();
 
 })();

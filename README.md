@@ -1,28 +1,32 @@
-# Context-Carry (AI Context Manager)
+# Context-Carry: Cross-LLM Chat History Export & Context Manager
 
 [![中文說明](https://img.shields.io/badge/Language-繁體中文-blue)](README_zh-TW.md)
-![Version](https://img.shields.io/badge/version-1.0-blue)
+![Version](https://img.shields.io/badge/version-1.1-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-**Context-Carry** is a lightweight Chrome extension designed to help you effortlessly transfer conversation context between different AI platforms (ChatGPT, Claude, Gemini, and Grok).
+**Stop losing your context when switching AIs.**
 
-Stop manually copying and pasting massive walls of text. Select specific messages, add a custom system prompt, and carry the context to a new chat with one click.
+**Context-Carry** is a powerful Chrome extension designed for **Chat History Export**, **Prompt Management**, and **Seamless Cross-LLM Transfer**.
+
+It allows you to effortlessly transfer conversation threads between different AI platforms (**ChatGPT**, **Claude**, **Gemini**, and **Grok**) with **One-Click Auto-Fill**.
+
+Stop manually copying and pasting massive walls of text. Select specific messages, attach your custom system prompt, click a target platform, and watch it **automatically fill** the context in the new chat.
 
 > **[點此查看中文說明 (Traditional Chinese Version)](README_zh-TW.md)**
 
 ## Features
 
-- **Multi-Platform Support**: Works seamlessly on:
-  - ChatGPT
-  - Claude.ai
-  - Google Gemini
-  - Grok (X.com)
-- **Smart Selection**: Non-intrusive checkboxes allow you to pick exactly which messages to transfer.
-- **Visual Fixes**: Smart padding ensures buttons never block your chat text (V1.0 Updated).
-- **Custom Prefix**: Add your own "System Prompt" or instructions before the copied context.
-- **Export Options**: 
-  - **Copy to Clipboard**: Formatted for immediate pasting.
-  - **Download as .txt**: Save the conversation history locally.
+- **Seamless Cross-LLM Transfer**: Instantly move context between:
+  - ChatGPT 🤖
+  - Claude.ai 🧠
+  - Google Gemini 💎
+  - Grok (X.com) ✖️
+- **Magic Auto-Fill**: No more `Ctrl+V`. The extension opens the new AI platform and **automatically pastes** your context into the input box.
+- **Smart Selection**: Non-intrusive checkboxes allow you to pick exactly which messages to export.
+- **Prompt Management**: Save and insert your own "System Prompt" to guide the new AI's behavior.
+- **Save ChatGPT Conversation**:
+  - **Copy to Clipboard**: Backup your chat history manually.
+  - **Download as .txt**: Archive your valuable conversation locally.
 - **Privacy First**: Runs 100% locally in your browser. No data is sent to external servers.
 
 ## Screenshots
@@ -43,18 +47,20 @@ Coming soon.
 
 ## How to Use
 
-1. Open a chat on any supported AI platform (e.g., Claude or Grok).
+1. Open a chat on any supported AI platform (e.g., ChatGPT).
 2. Click the **Context-Carry** icon in your browser toolbar.
 3. Click **"Rescan Page"** if the selection buttons don't appear automatically.
 4. Click the **➕** buttons next to the messages you want to keep. They will turn into green **✓** checks.
 5. (Optional) Enter a custom instruction in the "Custom Prefix" box (e.g., *"Summarize the following context..."*).
-6. Click **"Transfer to New Chat"** to copy the content and open a new tab, or **"Export to .txt"** to save it.
+6. **Transfer**: Click the icon of the **Target Platform** (e.g., click **Gemini 💎**).
+7. The new platform will open, and the text will be **automatically filled** in the input box. Just press Enter to send!
 
 ## Privacy
 
 This extension respects your privacy.
 - It operates entirely on the client side.
-- It does **not** collect, store, or transmit any user data or chat content to any external servers.
+- It uses `chrome.storage` strictly for temporarily passing text between tabs for the auto-fill feature.
+- It does **not** collect, store, or transmit any user data to external servers.
 - See [PRIVACY.md](PRIVACY.md) for full details.
 
 ## Development
@@ -63,9 +69,8 @@ Pull requests are welcome. For major changes, please open an issue first to disc
 
 Clone the repo:
    ```bash
-   git clone https://github.com/gordonsay/Context-Carry.git
+   git clone [https://github.com/gordonsay/Context-Carry.git](https://github.com/gordonsay/Context-Carry.git)
    ```
-
 
 ## Disclaimer
 

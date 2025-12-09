@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ------------------------------------------------------------------------
 
+## [1.1] - 2025-12-09
+
+### Added
+- **Cross-LLM Auto-Fill:** Implemented one-click context transfer. The extension now automatically opens the target AI platform and pastes the selected text.
+- **Platform Buttons:** Added direct transfer icons for ChatGPT, Claude, Gemini, and Grok in the UI.
+- **Auto-Injection:** Content scripts now load automatically to support the auto-fill receiver logic.
+
+### Changed
+- **Permissions:** Added `storage` permission to `manifest.json` to handle temporary data passing between tabs.
+- **UI UX:** Replaced the single "Transfer" button with platform-specific options for better workflow.
+- **Privacy Policy:** Updated to reflect the usage of local storage for temporary transfer data.
+
+------------------------------------------------------------------------
+
 ## [1.0] - 2025-12-08
 
 ### Added
