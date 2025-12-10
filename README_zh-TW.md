@@ -3,7 +3,7 @@
 > [🔙 Return to English Version](README.md)
 
 [![Language](https://img.shields.io/badge/Language-English-blue)](README.md)
-![Version](https://img.shields.io/badge/version-1.4-blue)
+![Version](https://img.shields.io/badge/version-1.4.1-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 **從任何地方建立完美上下文，再帶到任何 AI。**
@@ -62,7 +62,9 @@
 
 ## 操作截圖
 
-![Selection UI](screenshots/screenshot_gpt.png)
+![標準 UI](screenshots/screenshot_gpt.png)
+
+![進階 UI](screenshots/screenshot_gpt_advanced.png)
 
 ---
 

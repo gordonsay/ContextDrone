@@ -1,7 +1,7 @@
 # Context-Carry: Cross-LLM Chat History Export & Context Manager
 
 [![中文說明](https://img.shields.io/badge/Language-繁體中文-blue)](README_zh-TW.md)
-![Version](https://img.shields.io/badge/version-1.4-blue)
+![Version](https://img.shields.io/badge/version-1.4.1-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 **Build the perfect context from anywhere, then bring it to any AI.**
@@ -27,7 +27,9 @@ Stop manually copying and pasting massive walls of text. Select specific message
 
 ## Screenshots
 
-![Selection UI](screenshots/screenshot_gpt.png)
+![Simple UI](screenshots/screenshot_gpt.png)
+
+![Advanced UI](screenshots/screenshot_gpt_advanced.png)
 
 ## Installation
 

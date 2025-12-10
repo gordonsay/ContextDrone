@@ -5,7 +5,7 @@ chrome.runtime.onInstalled.addListener(() => {
 
     chrome.contextMenus.create({
         id: "cc-add-to-basket",
-        title: "Add to Context Basket (+)",
+        title: "Add to Context Basket",
         contexts: ["selection"]
     });
 });

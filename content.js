@@ -129,39 +129,257 @@
         const style = document.createElement('style');
         style.id = 'cc-styles';
         style.textContent = `
+            /* Entry animation for the panel */
             #cc-panel {
                 transform: translateX(30px);
                 opacity: 0;
                 transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1), opacity 0.3s ease;
-                backdrop-filter: blur(12px);
-                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
-                border: 1px solid rgba(255, 255, 255, 0.1) !important;
+                position: fixed;
+                top: 80px;
+                right: 20px;
+                z-index: 2147483647;
             }
             #cc-panel.cc-visible {
                 transform: translateX(0);
                 opacity: 1;
             }
 
-            #cc-panel button {
-                transition: all 0.1s ease;
-                font-weight: 600;
+            /* Colour variables for light mode */
+            #cc-panel {
+                --cc-bg: #ffffff;
+                --cc-text: #334155;
+                --cc-text-sub: #64748b;
+                --cc-border: #e2e8f0;
+                --cc-shadow: 0 10px 30px rgba(0,0,0,0.12);
+                --cc-btn-bg: #f8fafc;
+                --cc-btn-hover: #f1f5f9;
+                --cc-primary: #3b82f6;
+                --cc-drawer-bg: #f8fafc;
+
+                /* platform specific colours */
+                --gpt-bg: #ecfdf5; --gpt-text: #059669; --gpt-border: #a7f3d0;
+                --cld-bg: #fffbeb; --cld-text: #d97706; --cld-border: #fde68a;
+                --gem-bg: #eff6ff; --gem-text: #2563eb; --gem-border: #bfdbfe;
+                --grk-bg: #f3f4f6; --grk-text: #1f2937; --grk-border: #e5e7eb;
             }
-            #cc-panel button:active {
-                transform: scale(0.95);
-                filter: brightness(0.9);
-            }
-            #cc-panel button:hover {
-                filter: brightness(1.1);
+            /* Override variables for dark mode when data‑theme="dark" */
+            #cc-panel[data-theme="dark"] {
+                --cc-bg: #1e1e1e;
+                --cc-text: #e2e8f0;
+                --cc-text-sub: #94a3b8;
+                --cc-border: #333333;
+                --cc-shadow: 0 10px 40px rgba(0,0,0,0.5);
+                --cc-btn-bg: #2d2d2d;
+                --cc-btn-hover: #3d3d3d;
+                --cc-primary: #60a5fa;
+                --cc-drawer-bg: #252525;
+                --gpt-bg: rgba(16,185,129,0.15); --gpt-text: #34d399; --gpt-border: rgba(16,185,129,0.3);
+                --cld-bg: rgba(245,158,11,0.15); --cld-text: #fbbf24; --cld-border: rgba(245,158,11,0.3);
+                --gem-bg: rgba(59,130,246,0.15); --gem-text: #60a5fa; --gem-border: rgba(59,130,246,0.3);
+                --grk-bg: rgba(255,255,255,0.1); --grk-text: #e5e7eb; --grk-border: rgba(255,255,255,0.2);
             }
 
-            .cc-basket-item {
+            /* Base panel styles */
+            #cc-panel.cc-panel {
+                width: 260px;
+                background: var(--cc-bg);
+                color: var(--cc-text);
+                border: 1px solid var(--cc-border);
+                border-radius: 16px;
+                box-shadow: var(--cc-shadow);
+                padding: 16px;
+                font-size: 13px;
+                display: flex;
+                flex-direction: column;
+            }
+
+            /* Header */
+            #cc-panel .cc-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 12px;
+                padding-bottom: 8px;
+                border-bottom: 1px solid var(--cc-border);
+                cursor: move;
+                user-select: none;
+            }
+            #cc-panel .cc-title {
+                font-weight: 700;
+                display: flex;
+                align-items: center;
+                gap: 6px;
+            }
+            #cc-panel .cc-status {
+                font-size: 10px;
+                background: var(--cc-primary);
+                color: #fff;
+                padding: 2px 6px;
+                border-radius: 10px;
+            }
+            #cc-panel .cc-controls {
+                display: flex;
+                gap: 6px;
+            }
+            #cc-panel .cc-icon-btn {
+                background: transparent;
+                border: none;
+                cursor: pointer;
+                color: var(--cc-text-sub);
+                font-size: 14px;
+                padding: 2px;
+                border-radius: 4px;
+                transition: 0.2s;
+            }
+            #cc-panel .cc-icon-btn:hover {
+                background: var(--cc-btn-hover);
+                color: var(--cc-text);
+            }
+
+            /* Status message */
+            #cc-panel .cc-msg {
+                font-size: 11px;
+                color: var(--cc-text-sub);
+                margin-bottom: 8px;
+            }
+
+            /* Platform grid */
+            #cc-panel .cc-grid {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 8px;
+                margin-bottom: 12px;
+            }
+            #cc-panel .platform-btn {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 8px 12px;
+                border-radius: 8px;
+                cursor: pointer;
+                transition: all 0.2s;
+                border: 1px solid transparent;
+                font-weight: 600;
+                font-size: 12px;
+            }
+            #cc-panel .platform-btn:hover {
+                transform: translateY(-1px);
+                filter: brightness(1.05);
+            }
+            #cc-panel .platform-btn i {
+                font-style: normal;
+                font-size: 16px;
+            }
+            /* Platform colour variations */
+            #cc-panel .p-chatgpt { background: var(--gpt-bg); color: var(--gpt-text); border-color: var(--gpt-border); }
+            #cc-panel .p-claude { background: var(--cld-bg); color: var(--cld-text); border-color: var(--cld-border); }
+            #cc-panel .p-gemini { background: var(--gem-bg); color: var(--gem-text); border-color: var(--gem-border); }
+            #cc-panel .p-grok { background: var(--grk-bg); color: var(--grk-text); border-color: var(--grk-border); }
+
+            /* Tools row */
+            #cc-panel .cc-tools {
+                display: flex;
+                gap: 6px;
+                margin-bottom: 8px;
+            }
+            #cc-panel .tool-btn {
+                flex: 1;
+                padding: 6px;
+                background: var(--cc-btn-bg);
+                border: 1px solid var(--cc-border);
+                color: var(--cc-text);
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 11px;
+                font-weight: 500;
+                transition: 0.2s;
+            }
+            #cc-panel .tool-btn:hover {
+                background: var(--cc-btn-hover);
+                border-color: var(--cc-text-sub);
+            }
+
+            /* Drawer toggle */
+            #cc-panel .cc-drawer-toggle {
+                text-align: center;
+                color: var(--cc-text-sub);
+                font-size: 10px;
+                cursor: pointer;
+                padding: 4px;
+                user-select: none;
+                margin-top: 4px;
+            }
+            #cc-panel .cc-drawer-toggle:hover {
+                color: var(--cc-text);
+            }
+
+            /* Drawer */
+            #cc-panel .cc-drawer {
+                max-height: 0;
+                overflow: hidden;
+                opacity: 0;
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                background: var(--cc-drawer-bg);
+                margin: 0 -16px -16px -16px;
+                border-radius: 0 0 16px 16px;
+                border-top: 1px solid var(--cc-border);
+            }
+            #cc-panel.expanded .cc-drawer {
+                max-height: 600px;
+                opacity: 1;
+                padding: 12px 16px;
+                margin-top: 8px;
+            }
+            #cc-panel.expanded .arrow {
+                transform: rotate(180deg);
+                display: inline-block;
+            }
+
+            /* Drawer internal elements */
+            #cc-panel .cc-input {
+                width: 100%;
+                box-sizing: border-box;
+                background: var(--cc-bg);
+                color: var(--cc-text);
+                border: 1px solid var(--cc-border);
+                border-radius: 6px;
+                padding: 8px;
+                font-size: 11px;
+                margin-bottom: 8px;
+                resize: vertical;
+                height: 50px;
+            }
+            #cc-panel .basket-info {
+                display: flex;
+                justify-content: space-between;
+                font-size: 11px;
+                color: var(--cc-text-sub);
+                margin-bottom: 4px;
+            }
+            #cc-panel .basket-preview-list {
+                margin-top: 4px;
+                max-height: 150px;
+                overflow-y: auto;
+                font-size: 11px;
+                color: var(--cc-text);
+            }
+            #cc-panel .empty-basket {
+                font-size: 10px;
+                color: var(--cc-text-sub);
+                text-align: center;
+                padding: 10px;
+                border: 1px dashed var(--cc-border);
+                border-radius: 6px;
+            }
+            /* Basket item animations remain from original */
+            #cc-panel .cc-basket-item {
                 transition: all 0.3s ease;
                 opacity: 1;
                 transform: translateX(0);
-                max-height: 50px;
+                max-height: 60px;
                 margin-bottom: 4px;
             }
-            .cc-basket-item.cc-deleting {
+            #cc-panel .cc-basket-item.cc-deleting {
                 opacity: 0;
                 transform: translateX(30px);
                 max-height: 0;
@@ -169,7 +387,7 @@
                 padding: 0 !important;
                 overflow: hidden;
             }
-            
+            /* Scrollbar styling */
             #cc-panel ::-webkit-scrollbar { width: 6px; }
             #cc-panel ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
             #cc-panel ::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
@@ -199,8 +417,6 @@
             clone.querySelectorAll(config.ignore).forEach(el => el.remove());
         }
         clone.querySelectorAll('.cc-btn').forEach(el => el.remove());
-
-        // 1. Code Blocks
         clone.querySelectorAll('pre, code').forEach(code => {
             const isBlock = code.tagName === 'PRE' || (code.parentElement && code.parentElement.tagName === 'PRE');
             const content = code.innerText;
@@ -214,8 +430,6 @@
                 code.replaceWith(document.createTextNode(`\`${content}\``));
             }
         });
-
-        // 2. Formatting (Bold, Italic, Header, Link)
         clone.querySelectorAll('b, strong').forEach(el => el.replaceWith(document.createTextNode(`**${el.innerText}**`)));
         clone.querySelectorAll('i, em').forEach(el => el.replaceWith(document.createTextNode(`*${el.innerText}*`)));
         ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].forEach((h, i) => {
@@ -341,7 +555,6 @@
 
     function createPanel() {
         if (document.getElementById('cc-panel')) return;
-
         const curLang = window.ccManager.lang;
         const t = LANG_DATA[curLang];
         tooltip = document.createElement('div');
@@ -352,232 +565,233 @@
             padding: '8px 12px', borderRadius: '6px', fontSize: '12px',
             maxWidth: '300px', maxHeight: '200px', overflowY: 'auto',
             border: '1px solid #555', boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
-            pointerEvents: 'none',
-            whiteSpace: 'pre-wrap', fontFamily: 'monospace'
+            pointerEvents: 'none', whiteSpace: 'pre-wrap', fontFamily: 'monospace'
         });
         document.body.appendChild(tooltip);
-
         const panel = document.createElement('div');
         panel.id = 'cc-panel';
-        Object.assign(panel.style, {
-            position: 'fixed', top: '80px', right: '20px', zIndex: '2147483647',
-            background: 'rgba(30, 30, 30, 0.95)',
-            color: '#fff', padding: '16px', borderRadius: '12px',
-            width: '280px', textAlign: 'left', display: 'flex', flexDirection: 'column',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-        });
-
-        let isDragging = false;
-        let dragOffsetX = 0;
-        let dragOffsetY = 0;
-
+        panel.classList.add('cc-panel');
         const header = document.createElement('div');
-        Object.assign(header.style, {
-            display: 'flex', alignItems: 'center', marginBottom: '12px',
-            borderBottom: '1px solid #444', paddingBottom: '8px',
-            cursor: 'move', userSelect: 'none'
-        });
-
-        header.onmousedown = (e) => {
-            isDragging = true;
-            const rect = panel.getBoundingClientRect();
-            dragOffsetX = e.clientX - rect.left;
-            dragOffsetY = e.clientY - rect.top;
-
-            panel.style.right = 'auto';
-            panel.style.left = rect.left + 'px';
-            panel.style.top = rect.top + 'px';
-        };
-
-        document.addEventListener('mousemove', (e) => {
-            if (isDragging) {
-                panel.style.left = (e.clientX - dragOffsetX) + 'px';
-                panel.style.top = (e.clientY - dragOffsetY) + 'px';
-            }
-        });
-
-        document.addEventListener('mouseup', () => {
-            isDragging = false;
-        });
-
-        title = document.createElement('div');
-        title.innerText = t.title;
-        title.style.fontWeight = 'bold';
-        title.style.fontSize = '14px';
-        title.style.flexGrow = '1';
-
+        header.className = 'cc-header';
+        const titleWrapper = document.createElement('div');
+        titleWrapper.className = 'cc-title';
+        title = document.createElement('span');
+        title.textContent = t.title;
+        titleWrapper.appendChild(title);
+        const statusBadge = document.createElement('span');
+        statusBadge.id = 'status-badge';
+        statusBadge.className = 'cc-status';
+        statusBadge.textContent = '0';
+        titleWrapper.appendChild(statusBadge);
+        const controls = document.createElement('div');
+        controls.className = 'cc-controls';
         const langBtn = document.createElement('button');
-        langBtn.innerText = '🌐 中/En';
-        Object.assign(langBtn.style, { background: 'transparent', border: '1px solid #555', color: '#aaa', borderRadius: '4px', cursor: 'pointer', fontSize: '11px', padding: '2px 6px', marginRight: '8px' });
-
+        langBtn.className = 'cc-icon-btn';
+        langBtn.textContent = '🌐';
+        langBtn.title = 'Switch language';
         langBtn.onclick = function () {
             const oldLang = window.ccManager.lang;
             const newLang = oldLang === 'zh' ? 'en' : 'zh';
-            const currentInput = prefixInput.value.trim();
+            const currentInput = prefixInput?.value?.trim() || '';
             const oldDefault = LANG_DATA[oldLang].default_prompt.trim();
             if (currentInput === oldDefault) {
                 prefixInput.value = LANG_DATA[newLang].default_prompt;
                 flashInput(prefixInput);
             }
-
             window.ccManager.lang = newLang;
             updateUITexts();
         };
+        controls.appendChild(langBtn);
+
+        const themeBtn = document.createElement('button');
+        themeBtn.id = 'theme-btn';
+        themeBtn.className = 'cc-icon-btn';
+        themeBtn.textContent = '🌙';
+        themeBtn.title = 'Toggle dark mode';
+        themeBtn.onclick = function () {
+            const isDark = panel.getAttribute('data-theme') === 'dark';
+            if (isDark) {
+                panel.removeAttribute('data-theme');
+                themeBtn.textContent = '🌙';
+            } else {
+                panel.setAttribute('data-theme', 'dark');
+                themeBtn.textContent = '☀️';
+            }
+        };
+        controls.appendChild(themeBtn);
 
         const closeBtn = document.createElement('button');
+        closeBtn.className = 'cc-icon-btn';
         closeBtn.innerHTML = '&times;';
-        Object.assign(closeBtn.style, {
-            background: 'transparent', border: 'none', color: '#888',
-            cursor: 'pointer', fontSize: '18px', padding: '0 4px', lineHeight: '1'
-        });
+        closeBtn.title = 'Close';
         closeBtn.onclick = closeInterface;
+        controls.appendChild(closeBtn);
 
-        header.append(title, langBtn, closeBtn);
+        header.appendChild(titleWrapper);
+        header.appendChild(controls);
 
         msg = document.createElement('div');
-        msg.innerText = t.status_scanning;
-        Object.assign(msg.style, { fontSize: '12px', color: '#aaa', marginBottom: '12px' });
-        prefixLabel = document.createElement('div');
-        prefixLabel.innerText = t.label_prefix;
-        Object.assign(prefixLabel.style, { fontSize: '12px', color: '#ccc', marginBottom: '6px', fontWeight: 'bold' });
-
-        prefixInput = document.createElement('textarea');
-        prefixInput.id = 'cc-prefix-input';
-        prefixInput.value = t.default_prompt;
-        prefixInput.placeholder = t.placeholder;
-        prefixInput.addEventListener('input', calculateTotalTokens);
-        Object.assign(prefixInput.style, {
-            width: '100%', height: '80px', background: '#333', color: '#eee',
-            border: '1px solid #555', borderRadius: '6px', padding: '8px',
-            marginBottom: '12px', fontFamily: 'sans-serif', fontSize: '12px',
-            resize: 'vertical', boxSizing: 'border-box'
-        });
-
-        function createBtn(textKey, bg, onClick) {
-            const b = document.createElement('button');
-            b.innerText = t[textKey];
-            b.dataset.key = textKey;
-            Object.assign(b.style, {
-                flex: '1', background: bg, color: '#fff', border: 'none',
-                padding: '8px', borderRadius: '6px', cursor: 'pointer',
-                fontSize: '12px', fontWeight: 'bold'
-            });
-            b.onclick = onClick;
-            return b;
-        }
-
-        const selectionRow = document.createElement('div');
-        Object.assign(selectionRow.style, { display: 'flex', gap: '8px', marginBottom: '8px' });
-        btnSelectAll = createBtn('btn_select_all', '#1976D2', handleSelectAll);
-        btnUnselectAll = createBtn('btn_unselect_all', '#555', handleUnselectAll);
-        selectionRow.append(btnSelectAll, btnUnselectAll);
-
-        const actionRow = document.createElement('div');
-        Object.assign(actionRow.style, { display: 'flex', gap: '8px', marginBottom: '12px' });
-        btnDl = createBtn('btn_dl', '#2E7D32', handleDownload);
-        btnCopy = createBtn('btn_copy', '#555', handleCopyOnly);
-        actionRow.append(btnDl, btnCopy);
-
-        const basketContainer = document.createElement('div');
-        Object.assign(basketContainer.style, {
-            background: '#2d2d2d', padding: '10px', borderRadius: '8px',
-            marginBottom: '12px', border: '1px solid #444', display: 'flex', flexDirection: 'column'
-        });
-
-        const basketHeader = document.createElement('div');
-        basketHeader.style.display = 'flex';
-        basketHeader.style.justifyContent = 'space-between';
-
-        basketLabel = document.createElement('div');
-        basketLabel.innerText = t.label_basket;
-        basketLabel.style.fontSize = '12px';
-        basketLabel.style.fontWeight = 'bold';
-        basketLabel.style.marginBottom = '4px';
-
-        basketHeader.append(basketLabel);
-
-        basketStatus = document.createElement('div');
-        basketStatus.innerText = t.basket_status_empty;
-        Object.assign(basketStatus.style, {
-            fontSize: '11px', color: '#aaa', marginBottom: '8px',
-            cursor: 'pointer', userSelect: 'none', padding: '2px 0'
-        });
-        basketStatus.onmouseover = () => basketStatus.style.color = '#fff';
-        basketStatus.onmouseout = () => {
-            getBasket(b => {
-                if (b.length === 0) basketStatus.style.color = '#aaa';
-                else basketStatus.style.color = '#4CAF50';
-            });
-        };
-        basketStatus.onclick = toggleBasketPreview;
-
-        const basketBtnRow = document.createElement('div');
-        basketBtnRow.style.display = 'flex';
-        basketBtnRow.style.gap = '6px';
-
-        btnAddBasket = createBtn('btn_add_basket', '#E65100', handleAddToBasket);
-        btnPasteBasket = createBtn('btn_paste_basket', '#1565C0', handlePasteBasket);
-
-        btnClearBasket = document.createElement('button');
-        btnClearBasket.innerText = '🗑️';
-        btnClearBasket.title = t.btn_clear_basket;
-        Object.assign(btnClearBasket.style, {
-            background: '#444', color: '#fff', border: 'none', borderRadius: '6px',
-            cursor: 'pointer', padding: '0 10px', fontSize: '14px'
-        });
-        btnClearBasket.onclick = handleClearBasket;
-
-        basketBtnRow.append(btnAddBasket, btnPasteBasket, btnClearBasket);
-
-        basketPreviewList = document.createElement('div');
-        Object.assign(basketPreviewList.style, {
-            marginTop: '8px', borderTop: '1px solid #444', paddingTop: '4px',
-            maxHeight: '150px', overflowY: 'auto', display: 'none'
-        });
-
-        basketContainer.append(basketHeader, basketStatus, basketBtnRow, basketPreviewList);
-        const tokenDisplay = document.createElement('div');
-        tokenDisplay.id = 'cc-token-display';
-        Object.assign(tokenDisplay.style, {
-            fontSize: '11px', color: '#aaa', marginTop: '4px', marginBottom: '8px',
-            textAlign: 'right', fontWeight: 'bold'
-        });
-        tokenDisplay.innerText = t.token_est + " 0";
-        basketContainer.append(tokenDisplay);
-        transferLabel = document.createElement('div');
-        transferLabel.innerText = t.label_transfer;
-        Object.assign(transferLabel.style, { fontSize: '12px', color: '#ccc', marginBottom: '6px', fontWeight: 'bold' });
+        msg.className = 'cc-msg';
+        msg.textContent = t.status_scanning;
 
         transferContainer = document.createElement('div');
-        Object.assign(transferContainer.style, { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '6px', marginBottom: '8px' });
+        transferContainer.className = 'cc-grid';
+
+        transferLabel = document.createElement('div');
+        transferLabel.style.display = 'none';
 
         PLATFORMS.forEach(p => {
-            const btn = document.createElement('button');
-            btn.innerHTML = `${p.icon} <br/> ${p.name}`;
+            const btn = document.createElement('div');
+            btn.classList.add('platform-btn');
+            if (p.id === 'chatgpt') btn.classList.add('p-chatgpt');
+            if (p.id === 'claude') btn.classList.add('p-claude');
+            if (p.id === 'gemini') btn.classList.add('p-gemini');
+            if (p.id === 'grok') btn.classList.add('p-grok');
+            btn.innerHTML = `<i>${p.icon}</i> ${p.name}`;
             btn.title = `Transfer to ${p.name}`;
-            Object.assign(btn.style, {
-                background: '#333', border: '1px solid #555', color: '#fff',
-                padding: '6px 2px', borderRadius: '4px', cursor: 'pointer', fontSize: '11px',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px'
-            });
-            btn.onmouseover = () => btn.style.borderColor = '#1565C0';
-            btn.onmouseout = () => btn.style.borderColor = '#555';
             btn.onclick = () => handleCrossTransfer(p);
             transferContainer.appendChild(btn);
         });
 
-        const hr = document.createElement('hr');
-        Object.assign(hr.style, { border: '0', borderTop: '1px solid #333', margin: '8px 0', width: '100%' });
+        const toolsRow = document.createElement('div');
+        toolsRow.className = 'cc-tools';
 
-        btnScan = createBtn('btn_scan', '#444', function () {
+        btnSelectAll = document.createElement('button');
+        btnSelectAll.className = 'tool-btn';
+        btnSelectAll.textContent = t.btn_select_all;
+        btnSelectAll.onclick = handleSelectAll;
+
+        btnUnselectAll = document.createElement('button');
+        btnUnselectAll.className = 'tool-btn';
+        btnUnselectAll.textContent = t.btn_unselect_all;
+        btnUnselectAll.onclick = handleUnselectAll;
+
+        btnCopy = document.createElement('button');
+        btnCopy.className = 'tool-btn';
+        btnCopy.textContent = t.btn_copy;
+        btnCopy.onclick = handleCopyOnly;
+
+        toolsRow.append(btnSelectAll, btnUnselectAll, btnCopy);
+
+        const drawerToggle = document.createElement('div');
+        drawerToggle.className = 'cc-drawer-toggle';
+        drawerToggle.innerHTML = `<span class="arrow">▼</span> Advanced & Basket`;
+        drawerToggle.onclick = () => {
+            panel.classList.toggle('expanded');
+        };
+
+        const drawer = document.createElement('div');
+        drawer.className = 'cc-drawer';
+
+        prefixLabel = document.createElement('div');
+        prefixLabel.textContent = t.label_prefix;
+        prefixLabel.style.fontWeight = '600';
+        prefixLabel.style.fontSize = '12px';
+        prefixLabel.style.marginBottom = '4px';
+
+        prefixInput = document.createElement('textarea');
+        prefixInput.id = 'cc-prefix-input';
+        prefixInput.className = 'cc-input';
+        prefixInput.value = t.default_prompt;
+        prefixInput.placeholder = t.placeholder;
+        prefixInput.addEventListener('input', calculateTotalTokens);
+
+        const basketInfo = document.createElement('div');
+        basketInfo.className = 'basket-info';
+        basketLabel = document.createElement('span');
+        basketLabel.style.display = 'none';
+        basketInfo.appendChild(basketLabel);
+        basketStatus = document.createElement('span');
+        basketStatus.textContent = t.basket_status_empty;
+        basketStatus.style.cursor = 'pointer';
+        basketStatus.onclick = toggleBasketPreview;
+        basketInfo.appendChild(basketStatus);
+        btnClearBasket = document.createElement('span');
+        btnClearBasket.textContent = t.btn_clear_basket;
+        btnClearBasket.style.cursor = 'pointer';
+        btnClearBasket.style.color = 'var(--cc-primary)';
+        btnClearBasket.onclick = handleClearBasket;
+        basketInfo.appendChild(btnClearBasket);
+
+        const basketBtnRow = document.createElement('div');
+        basketBtnRow.className = 'cc-tools';
+        btnAddBasket = document.createElement('button');
+        btnAddBasket.className = 'tool-btn';
+        btnAddBasket.textContent = t.btn_add_basket;
+        btnAddBasket.onclick = handleAddToBasket;
+        btnPasteBasket = document.createElement('button');
+        btnPasteBasket.className = 'tool-btn';
+        btnPasteBasket.textContent = t.btn_paste_basket;
+        btnPasteBasket.onclick = handlePasteBasket;
+        basketBtnRow.append(btnAddBasket, btnPasteBasket);
+        basketPreviewList = document.createElement('div');
+        basketPreviewList.className = 'basket-preview-list';
+        basketPreviewList.style.display = 'none';
+        const tokenDisplay = document.createElement('div');
+        tokenDisplay.id = 'cc-token-display';
+        tokenDisplay.style.fontSize = '11px';
+        tokenDisplay.style.color = 'var(--cc-text-sub)';
+        tokenDisplay.style.marginTop = '4px';
+        tokenDisplay.style.marginBottom = '4px';
+        tokenDisplay.style.textAlign = 'right';
+        tokenDisplay.style.fontWeight = 'bold';
+        tokenDisplay.textContent = `${t.token_est} 0`;
+
+        const extraActions = document.createElement('div');
+        extraActions.className = 'cc-tools';
+        btnDl = document.createElement('button');
+        btnDl.className = 'tool-btn';
+        btnDl.textContent = t.btn_dl;
+        btnDl.onclick = handleDownload;
+        btnScan = document.createElement('button');
+        btnScan.className = 'tool-btn';
+        btnScan.textContent = t.btn_scan;
+        btnScan.onclick = function () {
             performScan();
-            this.innerText = LANG_DATA[window.ccManager.lang].btn_scan_done;
-            setTimeout(() => this.innerText = LANG_DATA[window.ccManager.lang].btn_scan, 1000);
-        });
-        btnScan.style.border = '1px solid #666';
-
-        panel.append(header, msg, prefixLabel, prefixInput, selectionRow, actionRow, basketContainer, tokenDisplay, transferLabel, transferContainer, hr, btnScan);
+            this.textContent = LANG_DATA[window.ccManager.lang].btn_scan_done;
+            setTimeout(() => {
+                this.textContent = LANG_DATA[window.ccManager.lang].btn_scan;
+            }, 1000);
+        };
+        extraActions.append(btnDl, btnScan);
+        drawer.append(prefixLabel, prefixInput, basketInfo, basketBtnRow, basketPreviewList, tokenDisplay, extraActions);
+        panel.append(header, msg, transferLabel, transferContainer, toolsRow, drawerToggle, drawer);
         document.body.appendChild(panel);
+        makeDraggable(panel, header);
+    }
+
+    function makeDraggable(element, handle) {
+        let isDragging = false;
+        let startX, startY, initialLeft, initialTop;
+
+        handle.addEventListener('mousedown', (e) => {
+            if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+            isDragging = true;
+            const rect = element.getBoundingClientRect();
+            element.style.right = 'auto';
+            element.style.bottom = 'auto';
+            element.style.left = `${rect.left}px`;
+            element.style.top = `${rect.top}px`;
+            element.style.transform = 'none';
+            element.style.transition = 'none';
+            startX = e.clientX;
+            startY = e.clientY;
+            initialLeft = rect.left;
+            initialTop = rect.top;
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            element.style.left = `${initialLeft + dx}px`;
+            element.style.top = `${initialTop + dy}px`;
+        });
+        document.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+            }
+        });
     }
 
     /* =========================================
