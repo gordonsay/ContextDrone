@@ -1,4 +1,4 @@
-# Context-Carry — 一鍵在 ChatGPT、Claude、Gemini 之間轉移完整對話上下文
+# Context-Carry — 一鍵在 ChatGPT、Claude、Grok、Gemini 之間轉移完整對話上下文
 
 > [🔙 返回英文版本（English Version）](README.md)
 
