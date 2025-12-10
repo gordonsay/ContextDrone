@@ -7,11 +7,15 @@
 - [Key Features](#key-features-what-makes-context-carry-different)
 - [Screenshots](#screenshots)
 - [Installation](#installation)
-- [Usage](#usage)
+- [Hpw to use](#how-to-use)
 - [Privacy](#privacy)
+- [Development](#development)
 - [Disclaimer](#disclaimer)
 - [Changelog](#changelog)
 - [License](#license)
+- [Contact](#contact)
+- [Note](#note)
+- [Keywords](#keywords)
 
 [![中文說明](https://img.shields.io/badge/Language-繁體中文-blue)](README_zh-TW.md)
 ![Version](https://img.shields.io/badge/version-1.4.1-blue)
@@ -33,7 +37,7 @@ This tool is built for developers, researchers, and power users who constantly s
 
 > **[點此查看中文說明 (Traditional Chinese Version)](README_zh-TW.md)**
 
-## Quick Start (30-Second Workflow)
+## Quick Start
 
 1. Open **ChatGPT / Claude / Gemini**
 2. Click the floating **Context-Carry panel**
