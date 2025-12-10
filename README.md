@@ -69,6 +69,8 @@ That’s it. No copy-paste. No reformatting.
 
 ![Context-Carry Demo](screenshots/demo.gif)
 
+![Context-Carry Demo](screenshots/circle.gif)
+
 ![Simple UI](screenshots/screenshot_gpt.png)
 
 ![Advanced UI](screenshots/screenshot_gpt_advanced.png)

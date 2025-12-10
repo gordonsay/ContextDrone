@@ -103,6 +103,8 @@ Context-Carry 是一款輕量、專為進階使用者打造的 Chrome 擴充功�
 
 ![Demo](screenshots/demo.gif)
 
+![Demo](screenshots/circle.gif)
+
 ![標準 UI](screenshots/screenshot_gpt.png)
 
 ![進階 UI](screenshots/screenshot_gpt_advanced.png)
