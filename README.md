@@ -1,181 +1,86 @@
-# Context-Carry — Move Your Chat Context Between ChatGPT, Claude, Grok & Gemini in One Click
-
-<details>
-  <summary>Table of Contents</summary>
-
-- [Quick Start](#quick-start)
-- [Typical Use Cases](#typical-use-cases)
-- [Key Features](#key-features-what-makes-context-carry-different)
-- [Screenshots](#screenshots)
-- [Installation](#installation)
-- [How to Use](#how-to-use)
-- [Privacy](#privacy)
-- [Development](#development)
-- [License](#license)
-
-</details>
+# Context-Carry  
+### Move your context across ChatGPT, Claude, Gemini & Grok — instantly.
 
 [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-Available-blue?logo=google-chrome&logoColor=white)](https://chromewebstore.google.com/detail/okjnafabngnahdppmbnmefofokpegccm?utm_source=item-share-cb)
 [![中文說明](https://img.shields.io/badge/Language-繁體中文-blue)](README_zh-TW.md)
 ![Version](https://img.shields.io/badge/version-1.4.3-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-**Stop rewriting the same prompt. Carry your full context across AI platforms instantly.**
+**Context-Carry** is a lightweight Chrome extension that lets you capture, clean, and transfer text between AI platforms — without copy-paste and without formatting issues.
 
-Context-Carry is a lightweight Chrome extension that lets you:
+---
 
-- ✅ Extract chat history from ChatGPT, Claude, Gemini, and Grok  
-- ✅ **Capture text from ANY website** (StackOverflow, Gmail, Docs) via Universal Collector Mode  
-- ✅ **Drag & Drop** selected text directly into your context basket  
-- ✅ **Visually select** text from any webpage using a paintbrush tool  
-- ✅ Reorder everything into a clean, structured context  
-- ✅ Auto-fill it into a new AI chat with one click  
-- ✅ Avoid context limit errors with **cross-tab synchronized** token estimation
+## 🚀 Quick Start
+1. Open any AI chat.  
+2. Click the floating **Context-Carry** panel.  
+3. Capture text using **➕**, **Paintbrush**, or **Drag-and-Drop**.  
+4. Open another AI platform → **New Chat** → context auto-filled.
 
-This tool is built for developers, researchers, and power users who constantly switch between AI platforms and hate rebuilding the same context again and again.
+---
 
-> If you use multiple AI tools daily, this extension saves you hours every week.
+## ✨ Features
+- Capture text from **any AI chat or webpage**  
+- Visual area selection (🖌️ Paintbrush)  
+- Drag-and-drop snippets into a **Context Basket**  
+- Clean Markdown formatting  
+- Real-time token estimation  
+- One-click transfer to ChatGPT / Claude / Gemini / Grok  
 
-> **[點此查看中文說明 (Traditional Chinese Version)](README_zh-TW.md)**
+---
 
-## Quick Start
-
-1. Open **ChatGPT / Claude / Gemini**
-2. Click the floating **Context-Carry panel**
-3. Click **➕** to capture messages  
-   (or **Shift + Click** for batch selection)
-4. Open another AI platform tab
-5. Click **New Chat** → ✅ Auto-filled instantly
-
-That’s it. No copy-paste. No reformatting.
-
-## Typical Use Cases
-
-- 🔁 Move a long ChatGPT discussion directly into Claude for deeper reasoning  
-- 🖌️ Visually circle code snippets or paragraphs on a documentation site to capture them instantly  
-- 🧪 Carry debugging conversations between multiple LLMs  
-- 📚 **Research Mode**: Drag code from GitHub, errors from StackOverflow, and requirements from Gmail into one unified prompt context.
-- 📏 Avoid context limit crashes with real-time token calculation
-
-## Key Features (What Makes Context-Carry Different)
-
-- **Drag-and-Drop Capture**: Users can now drag selected text directly from the webpage and drop it onto the Context-Carry panel to instantly add it to the Basket.
-- **Universal Collector Mode**: The interface now automatically switches to a specialized "Collector Mode" on non-AI websites (e.g., Gmail, StackOverflow, GitLab).
-- **Visual Area Selection (🖌️)**: Activate the paintbrush mode to freely circle any area on a webpage. All text inside your drawing is automatically extracted and cleaned.
-- **Smart Export Options **: When exporting, if you have both "Basket Items" and "Current Page Selection," the extension intelligently asks if you want to export **only the basket**, **only the page**, or **merge both**.
-- **Clean Context Architecture**: System prompts (Prefixes) are now managed separately from content. Adding items to the basket creates "clean" data, ensuring you don't get repetitive system prompts when merging multiple sources.
-- **Cross-Window Token Sync**: Token estimation is now synchronized across tabs. Adding an item in Tab A immediately updates the estimated token count in Tab B.
-- **Cross-Window Context Basket**: The ultimate staging area. Collect snippets from ChatGPT in one tab, a documentation page in another, and a StackOverflow answer in a third.
-- **Drag-and-Drop Reordering**: Context matters, and so does order. Open the basket preview to drag and rearrange your snippets before transferring.
-- **Magic Auto-Fill**: Automatically opens the target AI platform and pastes your context.
-- **Markdown Formatting**: Automatically converts HTML content (headers, bold text, code blocks) into clean Markdown for better AI comprehension.
-
-## Screenshots
-
+## 🎥 Demo
 ![Context-Carry Demo](screenshots/demo.gif)
 
 ![Context-Carry Demo](screenshots/circle.gif)
 
 ![Context-Carry Demo](screenshots/drag.gif)
 
-![Simple UI](screenshots/screenshot_gpt.png)
+---
 
-![Advanced UI](screenshots/ui.png)
+## 🔧 Installation
+### Chrome Web Store  
+[Install from Chrome Web Store](https://chromewebstore.google.com/detail/okjnafabngnahdppmbnmefofokpegccm)
 
-## Keyboard Shortcuts
+### Manual  
+1. Download this repo  
+2. Visit `chrome://extensions/`  
+3. Enable **Developer Mode**  
+4. Load unpacked → select folder  
 
-Work faster with these built-in hotkeys:
+---
 
-| Shortcut | Action | Description |
-| :--- | :--- | :--- |
-| **Alt + M** | Toggle Panel | Open or close the Context-Carry interface |
-| **Alt + Z** | Area Select | Activate the Paintbrush tool to circle text |
-| **Alt + L** | Switch Language | Toggle UI language between English and Chinese |
+## ⌨️ Shortcuts
+| Hotkey | Action |
+|--------|--------|
+| **Alt + M** | Toggle panel |
+| **Alt + Z** | Paintbrush capture |
+| **Alt + L** | Switch language |
 
-## Installation
+---
 
-### From Chrome Web Store
-[Download Context-Carry from Chrome Web Store](https://chromewebstore.google.com/detail/okjnafabngnahdppmbnmefofokpegccm?utm_source=item-share-cb)
+## 🔐 Privacy
+- 100% local processing  
+- No data collection  
+- Auto-clears temporary context on browser restart  
 
-### Manual Installation (Developer Mode)
-1. Download the latest release source code or clone this repository.
-2. Open Chrome and navigate to `chrome://extensions/`.
-3. Toggle **Developer mode** in the top right corner.
-4. Click **Load unpacked**.
-5. Select the folder containing this extension's files.
+See **PRIVACY.md** for details.
 
-## How to Use
+---
 
-### Method 1: Capturing AI Chat History
-1. Open a chat on any supported AI platform.
-2. Click the **Context-Carry** floating panel.
-3. Click **➕** to select messages (or **Shift + Click** for range selection).
-4. Click **Add (+)** to send them to the Basket.
+## 🤝 Contribute
+```bash
+git clone https://github.com/gordonsay/Context-Carry.git
+```
 
-### Method 2: Visual Area Selection (Paintbrush)
-1. Click the **Paintbrush 🖌️** icon in the panel (or press **Alt + Z**).
-2. Draw a shape around any text on the screen.
-3. A preview modal will appear showing the captured text.
-4. Click **Add to Basket** to save it.
+---
 
-### Method 3: Capturing via Right-Click
-1. Highlight text on any website.
-2. **Right-Click** the selected text.
-3. Choose **"Add to Context Basket (+)"** from the menu.
+## Privacy & License
+[README (繁體中文)](README_zh-TW.md) | [Privacy Policy](PRIVACY.md) | [License (MIT)](LICENSE)
 
-### Method 4: Drag-and-Drop Capture
-1. Select any text on a webpage.
-2. Drag the selected text towards the Context-Carry panel.
-3. Drop it when you see the green **"Drop to Add"** overlay.
+---
 
-### Method 5: Exporting & Transferring
-1. **Review**: Open the basket preview to reorder items if needed.
-2. **Export**: Click "Export to .txt" or "Copy to Clipboard".
-   - *Smart Choice*: If you have both a basket and a current selection, a popup will ask which one you want to export (or merge both).
-3. **Transfer**: Click a platform icon (e.g., Claude 🧠) to open a new tab with the context pre-filled.
-
-## Privacy
-
-This extension respects your privacy.
-- It operates entirely on the client side.
-- It uses `chrome.storage.local` strictly for temporarily passing text between tabs.
-- **Zero Data Collection**: We do not transmit any user data to external servers.
-- **Auto-Cleanup**: All stored context is automatically cleared when you restart your browser.
-- See [PRIVACY.md](PRIVACY.md) for full details.
-
-## Development
-
-Pull requests are welcome. For major changes, please open an issue first to discuss what you would like to change.
-
-Clone the repo:
-   ```bash
-   git clone https://github.com/gordonsay/Context-Carry.git
-   ```
-
-## Disclaimer
-
-This extension is not affiliated with OpenAI, Anthropic, Google, or xAI.  
-All product names, logos, and brands are property of their respective owners.
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for a list of changes and updates.
-
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-
-## Contact
-
-For questions or support, please open an issue on the [GitHub repository](https://github.com/gordonsay/Context-Carry).
-
-
-## Note
-
-Due to browser security restrictions, file attachments (PDF/Images) cannot be transferred automatically.
-
-## Keywords
-
-ChatGPT Chrome Extension, Claude Context Tool, Gemini Prompt Transfer, LLM Context Manager, Prompt Engineering Tool, AI Workflow Assistant, Cross-LLM Chat Transfer
+## ❤️ Support
+If this extension saved you time, consider buying me a coffee!
+<a href="https://www.buymeacoffee.com/gordonsay">
+  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" width="150" />
+</a>
