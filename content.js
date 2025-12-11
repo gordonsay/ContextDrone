@@ -1212,6 +1212,9 @@
             a.href = url;
             a.download = 'chat-context-' + new Date().toISOString().slice(0, 10) + '.txt';
             document.body.appendChild(a);
+            a.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
