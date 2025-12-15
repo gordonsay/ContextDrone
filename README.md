@@ -69,8 +69,6 @@
 - No data collection 
 - Auto-clears temporary context on browser restart 
 
-See **PRIVACY.md** for details.
-
 ---
 
 ## 🤝 Contribute
