@@ -4,6 +4,60 @@ All notable changes to this project will be documented in this file.
 
 ------------------------------------------------------------------------
 
+## [1.5.0] - 2025-12-15
+
+### 🚀 New Features
+
+#### Enhanced Drag-and-Drop Ecosystem
+- **Local File Import:**  
+  Added support for dragging local `.txt` and `.md` files directly onto the panel to import them into the Context Basket.
+- **Web-to-Basket Drop:**  
+  Users can now drag conversation bubbles from LLM pages directly into the Context Basket for quick capturing.
+- **Basket-to-Anywhere:**  
+  Basket items are now draggable text objects, allowing users to drag and drop stored context into text input fields on any webpage (not limited to supported LLMs).
+
+#### Smart Local AI Integration (Ollama)
+- **Auto-Discovery:**  
+  Automatically detects and lists installed models (e.g., `llama3`, `mistral`) from the local Ollama server (`localhost:11434`), eliminating manual input.
+- **Dynamic Fallback:**  
+  Displays connection status and helpful error hints when the local server is unreachable.
+
+#### xAI (Grok) API Support
+- **Native Integration:**  
+  Added full support for the xAI API (`api.x.ai`) with standardized request handling.
+
+#### Robot Mode "Neural Uplink"
+- **Dedicated UI:**  
+  Introduced a standalone, Cyberpunk-themed configuration panel designed specifically for the Robot / Mechanic interface.
+
+#### Context Management Tools
+- **Custom Context:**  
+  Added **"New Doc"** feature, allowing users to manually create, write, and edit custom context snippets directly in the Basket.
+- **Visual Feedback:**  
+  Implemented **Green Box Hints** (green outlines) for selected conversation blocks to clearly indicate active selections.
+
+#### User Convenience
+- **Area Selection Shortcut:**  
+  Changed to `Alt + C` hotkey to quickly toggle the Paintbrush / Area Selection mode.
+- **Multilingual Support:**  
+  Enhanced **Cross-language Hints** with a fully functional English / Traditional Chinese toggle (`Alt + L`).
+
+### ⚡ Core Architecture
+- **Port-based Streaming:**  
+  Refactored AI communication to use long-lived connections (`chrome.runtime.connect`), resolving timeout issues during long generations (e.g., DeepSeek-R1 chains).
+- **State Persistence:**  
+  Optimized global state management to preserve API configurations and context data when switching UI modes or tabs.
+
+### 🛠️ Improvements & Fixes
+- **Async Settings:**  
+  Settings panel now loads model lists asynchronously to prevent UI freezing.
+- **Auto-Select Logic:**  
+  Automatically selects the first available model when switching AI providers.
+- **Visual Tweaks:**  
+  Added flash effects to input fields for clearer interaction feedback.
+
+------------------------------------------------------------------------
+
 ## [1.4.3] - 2025-12-11
 
 ### Added

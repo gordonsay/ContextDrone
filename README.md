@@ -3,7 +3,7 @@
 
 [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-Available-blue?logo=google-chrome&logoColor=white)](https://chromewebstore.google.com/detail/okjnafabngnahdppmbnmefofokpegccm?utm_source=item-share-cb)
 [![中文說明](https://img.shields.io/badge/Language-繁體中文-blue)](README_zh-TW.md)
-![Version](https://img.shields.io/badge/version-1.4.3-blue)
+![Version](https://img.shields.io/badge/version-1.5.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 **Context-Carry** is a lightweight Chrome extension that lets you capture, clean, and transfer text between AI platforms — without copy-paste and without formatting issues.
@@ -11,25 +11,29 @@
 ---
 
 ## 🚀 Quick Start
-1. Open any AI chat.  
-2. Click the floating **Context-Carry** panel.  
-3. Capture text using **➕**, **Paintbrush**, or **Drag-and-Drop**.  
-4. Open another AI platform → **New Chat** → context auto-filled.
+1. Open any webpage or AI chat  
+2. Capture content via **➕ / Paintbrush / Drag & Drop**  
+3. Store it in the **Context Basket**  
+4. Drag it anywhere or auto-fill into another AI chat
 
 ---
 
 ## ✨ Features
-- Capture text from **any AI chat or webpage**  
-- Visual area selection (🖌️ Paintbrush)  
-- Drag-and-drop snippets into a **Context Basket**  
-- Clean Markdown formatting  
-- Real-time token estimation  
-- One-click transfer to ChatGPT / Claude / Gemini / Grok  
+- Capture text from **any webpage or AI conversation**
+- Visual **Area Selection (Paintbrush Mode)**
+- **Context Basket** for staging and reordering snippets
+- Drag snippets **from web → basket → anywhere**
+- Import local `.txt` / `.md` files
+- Clean Markdown output with token estimation
+- One-click transfer to **ChatGPT / Claude / Gemini / Grok**
+- Optional **local AI (Ollama)** & **xAI (Grok) API** support
 
 ---
 
 ## 🎥 Demo
-![Context-Carry Demo](screenshots/demo.gif)
+![Context-Carry Demo](screenshots/demo_ai.gif)
+
+![Context-Carry Demo](screenshots/demo_v1.5.gif)
 
 ![Context-Carry Demo](screenshots/circle.gif)
 
@@ -38,8 +42,9 @@
 ---
 
 ## 🔧 Installation
-### Chrome Web Store  
-[Install from Chrome Web Store](https://chromewebstore.google.com/detail/okjnafabngnahdppmbnmefofokpegccm)
+### Chrome Web Store
+Late Update
+<!-- [Install from Chrome Web Store](https://chromewebstore.google.com/detail/okjnafabngnahdppmbnmefofokpegccm) -->
 
 ### Manual  
 1. Download this repo  
@@ -53,15 +58,15 @@
 | Hotkey | Action |
 |--------|--------|
 | **Alt + M** | Toggle panel |
-| **Alt + Z** | Paintbrush capture |
+| **Alt + C** | Paintbrush capture |
 | **Alt + L** | Switch language |
 
 ---
 
 ## 🔐 Privacy
 - 100% local processing  
-- No data collection  
-- Auto-clears temporary context on browser restart  
+- No data collection 
+- Auto-clears temporary context on browser restart 
 
 See **PRIVACY.md** for details.
 

@@ -3,7 +3,7 @@
 
 [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-Available-blue?logo=google-chrome&logoColor=white)](https://chromewebstore.google.com/detail/okjnafabngnahdppmbnmefofokpegccm?utm_source=item-share-cb)
 [![English](https://img.shields.io/badge/Language-English-blue)](README.md)
-![Version](https://img.shields.io/badge/version-1.4.3-blue)
+![Version](https://img.shields.io/badge/version-1.5.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 **Context-Carry** 是一款輕量級的 Chrome 擴充功能，讓您可以擷取、清理並在不同的 AI 平台之間轉移文字——無需複製貼上，也不會出現格式錯亂的問題。
@@ -11,25 +11,29 @@
 ---
 
 ## 🚀 快速開始 (Quick Start)
-1. 開啟任何 AI 聊天視窗。
-2. 點擊懸浮的 **Context-Carry** 面板。
-3. 使用 **➕**、**畫筆 (Paintbrush)** 或 **拖放 (Drag-and-Drop)** 來擷取文字。
-4. 開啟另一個 AI 平台 → **新對話 (New Chat)** → 語境內容將自動填入。
+1. 開啟任何網頁或 AI 聊天  
+2. 透過 **➕ / 畫筆 / 拖放** 擷取內容  
+3. 將內容存入 **語境籃（Context Basket）**  
+4. 直接拖到任何地方，或自動填入另一個 AI 對話
 
 ---
 
 ## ✨ 功能特色
-- 支援從**任何 AI 聊天室或網頁**擷取文字
-- 視覺化區域選取 (🖌️ 畫筆模式)
-- 支援將文字片段直接拖放到 **語境籃 (Context Basket)**
-- 自動整理為乾淨的 Markdown 格式
-- 即時 Token 用量估算
-- 一鍵轉移至 ChatGPT / Claude / Gemini / Grok
+- 從 **任何網頁或 AI 對話** 擷取文字
+- 視覺化 **區域選取（畫筆模式）**
+- 使用 **語境籃（Context Basket）** 暫存與重排片段
+- 支援 **網頁 → 語境籃 → 任意輸入欄位** 的拖放流程
+- 匯入本地端 `.txt` / `.md` 檔案
+- 乾淨的 Markdown 輸出與 Token 估算
+- 一鍵轉移至 **ChatGPT / Claude / Gemini / Grok**
+- 選用 **本地 AI（Ollama）** 與 **xAI（Grok）API** 支援
 
 ---
 
 ## 🎥 功能演示
-![Context-Carry Demo](screenshots/demo.gif)
+![Context-Carry Demo](screenshots/demo_ai.gif)
+
+![Context-Carry Demo](screenshots/demo_v1.5.gif)
 
 ![Context-Carry Demo](screenshots/circle.gif)
 
@@ -38,8 +42,9 @@
 ---
 
 ## 🔧 安裝方式
-### Chrome 應用商店 (推薦)
-[前往 Chrome Web Store 安裝](https://chromewebstore.google.com/detail/okjnafabngnahdppmbnmefofokpegccm)
+### Chrome 應用商店
+即將上架
+<!-- [前往 Chrome Web Store 安裝](https://chromewebstore.google.com/detail/okjnafabngnahdppmbnmefofokpegccm) -->
 
 ### 手動安裝 (開發者模式)
 1. 下載此儲存庫 (Repo)
@@ -53,7 +58,7 @@
 | 快捷鍵 | 功能 |
 |--------|--------|
 | **Alt + M** | 開啟/關閉 面板 |
-| **Alt + Z** | 畫筆擷取模式 (Paintbrush) |
+| **Alt + C** | 畫筆擷取模式 (Paintbrush) |
 | **Alt + L** | 切換介面語言 |
 
 ---

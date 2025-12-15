@@ -15,7 +15,12 @@
         "https://claude.ai/*",
         "https://gemini.google.com/*",
         "https://grok.com/*",
-        "https://x.com/*"
+        "https://x.com/*",
+        "https://api.openai.com/*",
+        "https://api.anthropic.com/*",
+        "https://generativelanguage.googleapis.com/*",
+        "https://api.x.ai/*",
+        "http://localhost/*"
     ],
     "background": {
         "service_worker": "background.js"
