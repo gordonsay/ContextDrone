@@ -44,7 +44,7 @@
 ---
 
 ## 🔧 Installation
-### Chrome Web Store - v1.4.3 (without AI send)
+### Chrome Web Store
 [Install from Chrome Web Store](https://chromewebstore.google.com/detail/okjnafabngnahdppmbnmefofokpegccm)
 
 ### Manual  
