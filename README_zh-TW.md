@@ -43,7 +43,7 @@
 ---
 
 ## 🔧 安裝方式
-### Chrome 應用商店 - v1.4.3 尚未新增AI發送功能
+### Chrome 應用商店
 [前往 Chrome Web Store 安裝](https://chromewebstore.google.com/detail/okjnafabngnahdppmbnmefofokpegccm)
 
 ### 手動安裝 (開發者模式)
