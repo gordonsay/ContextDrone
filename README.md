@@ -3,7 +3,7 @@
 
 [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-Available-blue?logo=google-chrome&logoColor=white)](https://chromewebstore.google.com/detail/okjnafabngnahdppmbnmefofokpegccm)
 [![中文說明](https://img.shields.io/badge/Language-繁體中文-blue)](README_zh-TW.md)
-![Version](https://img.shields.io/badge/version-1.6.1-blue)
+![Version](https://img.shields.io/badge/version-1.6.2-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 **Context-Carry** is a lightweight Chrome extension that helps you capture, clean, organize, and send text or code between AI tools — no messy formatting, no painful copy-paste.
@@ -99,6 +99,17 @@
 ```bash
 git clone https://github.com/gordonsay/Context-Carry.git
 ```
+
+---
+
+## Important Development Notes
+
+### Modifications to `html2pdf.bundle.min.js`
+To comply with the Chrome Extension Manifest V3 **Blue Argon (Remote Hosted Code)** policy, `lib/html2pdf.bundle.min.js` has been manually patched. **Do not directly update or overwrite this file.**
+
+* **Modification Details**: The hardcoded CDN link (`https://cdnjs...`) for `pdfobject.min.js` was removed from the source code.
+* **Mechanism**: The local file path (`lib/pdfobject.min.js`) is injected dynamically via the `opt.pdfObjectUrl` parameter in `content.js`.
+* **Update Instructions**: If this library needs to be updated in the future, you must re-apply this patch (search for the CDN URL in the source code and clear it).
 
 ## Privacy & License
 [README (繁體中文)](README_zh-TW.md) | [Privacy Policy](PRIVACY.md) | [License (MIT)](LICENSE)

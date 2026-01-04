@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 ------------------------------------------------------------------------
+## [1.6.2] - 2026-01-04
+
+### 🐛 Fixes
+- **Modified to html to PDF function path:**
+  According to Chrome extension V3 policy, modified contents with CDN export. 
+
+------------------------------------------------------------------------
 ## [1.6.1] - 2025-12-29
 
 ### 🚀 New Features

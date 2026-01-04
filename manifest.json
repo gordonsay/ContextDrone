@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "__MSG_appName__",
-    "version": "1.6.0",
+    "version": "1.6.2",
     "description": "__MSG_appDesc__",
     "default_locale": "en",
     "permissions": [
@@ -52,9 +52,19 @@
                 "assets_lang.js",
                 "config.js",
                 "content.js",
-                "lib/html2pdf.bundle.min.js"
+                "lib/html2pdf.bundle.min.js",
+                "lib/pdfobject.min.js"
             ],
             "run_at": "document_end"
+        }
+    ],
+    "web_accessible_resources": [
+        {
+        "resources": [ 
+            "lib/pdfobject.min.js",
+            "lib/html2pdf.bundle.min.js"
+         ],
+        "matches": [ "<all_urls>" ]
         }
     ],
     "icons": {

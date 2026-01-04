@@ -7869,7 +7869,7 @@
                 jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
                 pagebreak: { mode: 'avoid-all' }
             };
-
+            // opt.pdfObjectUrl = chrome.runtime.getURL('lib/pdfobject.min.js');
             html2pdf().set(opt).from(element).save()
                 .then(() => {
                     overlay.remove();

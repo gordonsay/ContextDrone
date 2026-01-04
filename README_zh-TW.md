@@ -3,7 +3,7 @@
 
 [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-Available-blue?logo=google-chrome&logoColor=white)](https://chromewebstore.google.com/detail/okjnafabngnahdppmbnmefofokpegccm?utm_source=item-share-cb)
 [![English](https://img.shields.io/badge/Language-English-blue)](README.md)
-![Version](https://img.shields.io/badge/version-1.6.1-blue)
+![Version](https://img.shields.io/badge/version-1.6.2-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 **Context-Carry（語境傳輸器）** 是一款輕量 Chrome 擴充功能，讓你能擷取、清理、整理文字或程式碼片段，並直接拖放傳到不同 AI 工具或本地 LLM，避免格式混亂與重複複製貼上。
@@ -104,6 +104,17 @@
 ```bash
 git clone https://github.com/gordonsay/Context-Carry.git
 ```
+
+---
+
+## 注意事項 (Important Development Notes)
+
+### 關於 html2pdf.bundle.min.js 的修改
+為了符合 Chrome Extension Manifest V3 的 **Blue Argon (禁止遠端程式碼)** 政策，`lib/html2pdf.bundle.min.js` 已進行手動修改，請勿直接更新或覆蓋此檔案。
+
+* **修改內容**：移除了原始碼中指向 CDN (`https://cdnjs...`) 的 `pdfobject.min.js` 連結。
+* **運作方式**：在 `content.js` 中透過 `opt.pdfObjectUrl` 動態傳入本地檔案路徑 (`lib/pdfobject.min.js`)。
+* **未來更新指南**：若需更新此套件，必須重新執行上述修改步驟（搜尋並清空 CDN 網址）。
 
 ---
 
