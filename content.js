@@ -1632,7 +1632,7 @@
                 <div class="cc-list-container" id="cc-list-container"></div>
                 <div class="cc-card-footer">
                     <button class="cc-btn-xs cc-btn-primary-xs" id="cc-paste-btn">📋 Paste</button>
-                    <button class="cc-btn-xs" id="cc-export-btn" title="Export / Format">📤</button>
+                    <button class="cc-btn-xs" id="cc-export-btn" title="Export ">💾</button>
                     <button class="cc-btn-xs" id="cc-clear-btn" title="Clear">🗑️</button>
                     <button class="cc-btn-xs" id="cc-expand-btn" title="Expand">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1659,7 +1659,7 @@
                     badgeEl.style.opacity = '0'; badgeEl.style.transform = 'scale(0)';
                 }
 
-                basket.forEach((it) => { if (it && it.id && selectionState[it.id] === undefined) selectionState[it.id] = true; });
+                basket.forEach((it) => { if (it && it.id && selectionState[it.id] === undefined) selectionState[it.id] = false; });
                 const selectedCount = basket.filter(it => it && it.id && selectionState[it.id]).length;
                 const isAllSelected = (total > 0 && selectedCount === total);
 
@@ -1725,8 +1725,8 @@
                             const [moved] = order.splice(fromIndex, 1);
                             order.splice(toIndex, 0, moved);
 
-                            selectionState = {};
-                            basket.forEach((it) => { if (it && it.id) selectionState[it.id] = true; });
+                            // selectionState = {};
+                            // basket.forEach((it) => { if (it && it.id) selectionState[it.id] = true; });
 
                             basketOp({ kind: 'REORDER', order }, () => {
                                 updateBasketUI();
@@ -1739,9 +1739,16 @@
                 const activeCount = basket.filter(it => it && it.id && selectionState[it.id]).length;
                 const pasteBtn = card.querySelector('#cc-paste-btn');
                 const pasteTxt = curT.pip_btn_paste || "Paste";
-                pasteBtn.innerHTML = activeCount > 0 ? `📋 ${pasteTxt} (${activeCount})` : `📋 ${pasteTxt} All`;
-                pasteBtn.style.opacity = (activeCount === 0 && total > 0) ? '0.8' : '1';
-
+                
+                if (activeCount > 0) {
+                    pasteBtn.innerHTML = `📋 ${pasteTxt} (${activeCount})`;
+                    pasteBtn.style.opacity = '1';
+                    pasteBtn.style.cursor = 'pointer';
+                } else {
+                    pasteBtn.innerHTML = `📋 items`;
+                    pasteBtn.style.opacity = '0.5';
+                    pasteBtn.style.cursor = 'default';
+                }
                 const clearBtn = card.querySelector('#cc-clear-btn');
                 const expandBtn = card.querySelector('#cc-expand-btn');
                 if (clearBtn) clearBtn.title = curT.btn_clear_basket;
@@ -1763,7 +1770,15 @@
                 exportBtn.onclick = (e) => {
                     e.stopPropagation();
                     card.classList.remove('visible');
-                    const currentBasket = basket || [];
+                    let currentBasket = basket || [];
+                    const selectedItems = currentBasket.filter(it => it && it.id && selectionState[it.id]);
+                    if (selectedItems.length > 0) {
+                        currentBasket = selectedItems;
+                    } else {
+                        showToast("No items selected!"); 
+                        return;
+                    }
+
                     if (currentBasket.length === 0) {
                         showToast("Basket is empty!");
                         return;
@@ -1780,12 +1795,14 @@
                 const selectedIds = basket.map(it => it && it.id).filter(id => id && selectionState[id]);
                 if (selectedIds.length > 0) {
                     textToPaste = selectedIds.map(id => (byId.get(id)?.text || '')).filter(Boolean).join('\n\n');
+                    forceInsertToLLM(textToPaste);
+                    card.style.transform = "translateY(0) scale(1.02)";
+                    setTimeout(() => card.style.transform = "translateY(0) scale(1)", 150);
                 } else {
-                    textToPaste = basket.map(i => i.text).join('\n\n');
+                    showToast("Please select items to paste 📋");
+                    return;
+                    
                 }
-                forceInsertToLLM(textToPaste);
-                card.style.transform = "translateY(0) scale(1.02)";
-                setTimeout(() => card.style.transform = "translateY(0) scale(1)", 150);
             };
 
             card.querySelector('.cc-select-all').onclick = (e) => {
