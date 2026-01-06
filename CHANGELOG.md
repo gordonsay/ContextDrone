@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 ------------------------------------------------------------------------
+## [1.6.3] - 2026-01-06
+
+### 🚀 New Features
+
+#### Drone Mode Enhancements
+- **Context Anchors (Ping):**
+  Added a **"Ping"** button in Drone Mode. Users can now mark their current scroll position in long conversation logs and instantly jump back to the anchor, solving the "lost in context" problem.
+- **Secure Mobile Handoff (Beta):**
+  Introduced a **QR Code Generator** for transferring context to mobile devices.
+  - **Zero-Knowledge:** Uses Client-Side Encryption (AES-GCM) before uploading.
+  - **Beta Access:** Currently operates with a daily transfer limit. Added a feedback mechanism for users to vote for unlimited access.
+
+### 🛠️ Changes
+- **Export Options:**
+  Temporarily hidden the **PDF (Direct Download)** option due to underlying library instability. Users can still use **PDF (Print View)** for reliable exporting.
+
+### 🐛 Fixes
+- **Boundary Condition Crashes:**
+  Resolved critical logic errors that caused the extension to crash when hitting specific boundary conditions (e.g., usage limits or empty state handling).
+  
+------------------------------------------------------------------------
 ## [1.6.2] - 2026-01-04
 
 ### 🐛 Fixes
