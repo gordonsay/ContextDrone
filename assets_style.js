@@ -1162,17 +1162,15 @@ const CC_STYLES = `
                     background: #00d2ff; color: #000; box-shadow: 0 0 8px #00d2ff;
                 }
 
-                .drone-close-btn {
+                .drone-action-btn {
                     position: absolute;
-                    top: -8px;
-                    left: -8px;
                     width: 20px;
                     height: 20px;
                     background: #1a1b1e;
                     border: 1px solid #555;
                     color: #ccc;
                     border-radius: 50%;
-                    font-size: 12px;
+                    font-size: 10px;
                     display: flex;
                     align-items: center;
                     justify-content: center;
@@ -1186,8 +1184,8 @@ const CC_STYLES = `
 
                 #cc-drone-badge {
                     position: absolute;
-                    top: 0px; 
-                    right: 0px;
+                    top: 30%; 
+                    right: -5px;
                     background: #ff5252;
                     color: white;
                     font-size: 10px;
@@ -1212,16 +1210,33 @@ const CC_STYLES = `
                     transform: scale(1);
                 }
 
-                #cc-drone-fab:hover .drone-close-btn {
+                #cc-drone-fab:hover .drone-action-btn {
                     opacity: 1;
                     transform: scale(1);
                 }
 
-                .drone-close-btn:hover {
+                .drone-btn-tl { top: -8px; left: -8px; }
+                .drone-btn-tr { top: -8px; right: -8px; }
+                .drone-btn-bl { bottom: -8px; left: -8px; cursor: grab; }
+                .drone-btn-br { bottom: -8px; right: -8px; }
+
+                .drone-action-btn:hover {
+                    transform: scale(1.15);
+                    color: white;
+                    z-index: 22;
+                }
+
+                .drone-btn-tr:hover {
                     background: #ff5252;
                     border-color: #ff5252;
-                    color: white;
-                    transform: scale(1.1);
+                }
+
+                .drone-btn-tl:hover, 
+                .drone-btn-bl:hover, 
+                .drone-btn-br:hover {
+                    background: #00d2ff;
+                    border-color: #00d2ff;
+                    color: #000;
                 }
 
                 #cc-canvas-container {
@@ -1371,113 +1386,6 @@ const CC_STYLES = `
                 .cc-node-select:hover {
                     border-color: #00d2ff;
                     color: #fff;
-                }
-
-                #cc-drone-fab {
-                    position: fixed;
-                    bottom: 40px;
-                    right: 40px;
-                    width: 56px;
-                    height: 56px;
-                    z-index: 2147483640;
-                    cursor: grab;
-                    opacity: 0.6;
-                    transition: opacity 0.3s, transform 0.2s, filter 0.3s;
-                    filter: grayscale(100%);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    background: rgba(0,0,0,0.2);
-                    border-radius: 50%;
-                    backdrop-filter: blur(4px);
-                    border: 1px solid rgba(255,255,255,0.15);
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-                }
-
-                #cc-drone-fab.cc-hidden {
-                    display: none !important;
-                    opacity: 0 !important;
-                    pointer-events: none !important;
-                }
-
-                #cc-drone-fab:hover {
-                    opacity: 1;
-                    filter: grayscale(0%);
-                    background: rgba(0, 210, 255, 0.1);
-                    box-shadow: 0 0 15px rgba(0, 210, 255, 0.3);
-                    transform: scale(1.1);
-                }
-                #cc-drone-fab:active {
-                    cursor: grabbing;
-                }
-
-                #cc-drone-fab.drag-over {
-                    transform: scale(1.3);
-                    box-shadow: 0 0 25px #4CAF50;
-                    background: rgba(76, 175, 80, 0.2);
-                    border-color: #4CAF50;
-                }
-
-                .drone-close-btn {
-                    position: absolute;
-                    top: -8px;
-                    left: -8px;
-                    width: 20px;
-                    height: 20px;
-                    background: #1a1b1e;
-                    border: 1px solid #555;
-                    color: #ccc;
-                    border-radius: 50%;
-                    font-size: 12px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    cursor: pointer;
-                    opacity: 0;
-                    transform: scale(0.5);
-                    transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-                    z-index: 20;
-                    box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-                }
-
-                #cc-drone-fab:hover .drone-close-btn {
-                    opacity: 1;
-                    transform: scale(1);
-                }
-
-                .drone-close-btn:hover {
-                    background: #ff5252;
-                    border-color: #ff5252;
-                    color: white;
-                    transform: scale(1.1);
-                }
-
-                #cc-drone-badge {
-                    position: absolute;
-                    top: 0px; 
-                    right: 0px;
-                    background: #ff5252;
-                    color: white;
-                    font-size: 10px;
-                    font-weight: bold;
-                    min-width: 18px;
-                    height: 18px;
-                    border-radius: 9px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    opacity: 0;
-                    transform: scale(0);
-                    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-                    box-shadow: 0 2px 5px rgba(0,0,0,0.5);
-                    border: 2px solid rgba(255,255,255,0.1);
-                    z-index: 25;
-                    pointer-events: none;
-                }
-
-                #cc-drone-fab.has-cargo #cc-drone-badge {
-                    opacity: 1;
-                    transform: scale(1);
                 }
 
                 .cc-hover-card {
@@ -1660,3 +1568,49 @@ const CC_STYLES = `
                     margin: 6px 0 8px 0;
                 }
             `;
+
+const LANG_MENU_CSS = `
+    .cc-lang-menu {
+        position: fixed;
+        background: #1e1e1e;
+        border: 1px solid #444;
+        border-radius: 8px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        z-index: 2147483647;
+        padding: 5px;
+        min-width: 130px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        font-family: sans-serif;
+        animation: cc-fade-in 0.1s ease-out;
+    }
+    .cc-lang-item {
+        padding: 8px 12px;
+        cursor: pointer;
+        color: #ddd;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        border-radius: 4px;
+        transition: background 0.2s;
+        text-align: left;
+    }
+    .cc-lang-item:hover {
+        background: #333;
+        color: #fff;
+    }
+    .cc-lang-item.active {
+        background: #00d2ff; /* 你的主題色 */
+        color: #000;
+        font-weight: bold;
+    }
+    .cc-lang-flag {
+        font-size: 18px;
+    }
+    @keyframes cc-fade-in {
+        from { opacity: 0; transform: translateY(-5px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+`;

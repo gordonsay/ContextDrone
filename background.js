@@ -13,7 +13,8 @@ const BG_MESSAGES = {
     }
 };
 
-const RELEASE_NOTES_URL = "release.html";
+const RELEASE_NOTES_URL = "https://doglab24.org";
+const UPDATE_NOTES_URL = "https://doglab24.org/whatsnew";
 
 /* ============================================================================
    2. MUTEX QUEUE & CENTRALIZED BASKET LOGIC (Data Consistency Layer)
@@ -159,6 +160,18 @@ async function handleBasketOperation(operation) {
    3. EVENT LISTENERS & UI INTERACTIONS
    ============================================================================ */
 
+function getAppLanguage() {
+    const uiLang = chrome.i18n.getUILanguage();
+
+    if (uiLang.startsWith('zh')) {
+        return (uiLang.includes('TW') || uiLang.includes('HK')) ? 'zh-TW' : 'zh-CN';
+    }
+    if (uiLang.startsWith('ja')) return 'ja';
+    if (uiLang.startsWith('ko')) return 'ko';
+
+    return 'en';
+}
+
 chrome.runtime.onInstalled.addListener((details) => {
     if (details.reason === 'install') {
         chrome.storage.local.set({
@@ -174,15 +187,22 @@ chrome.runtime.onInstalled.addListener((details) => {
         contexts: ["selection"]
     });
 
-    if (details.reason === 'install' || details.reason === 'update') {
-        if (details.reason === 'update') {
-            const currentVersion = chrome.runtime.getManifest().version;
-            if (details.previousVersion === currentVersion) return;
-        }
+    const targetLang = getAppLanguage();
 
-        chrome.tabs.create({ url: RELEASE_NOTES_URL });
-        chrome.action.setBadgeText({ text: 'NEW' });
-        chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
+    if (details.reason === 'install') {
+        chrome.tabs.create({
+            url: `${RELEASE_NOTES_URL}?lang=${targetLang}`
+        });
+    }
+    else if (details.reason === 'update') {
+        const currentVersion = chrome.runtime.getManifest().version;
+        if (currentVersion !== details.previousVersion) {
+            chrome.tabs.create({
+                url: `${UPDATE_NOTES_URL}?v=${currentVersion}&lang=${targetLang}`
+            });
+            chrome.action.setBadgeText({ text: 'NEW' });
+            chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
+        }
     }
 });
 

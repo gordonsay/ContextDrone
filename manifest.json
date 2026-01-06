@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "__MSG_appName__",
-    "version": "1.6.2",
+    "version": "1.6.3",
     "description": "__MSG_appDesc__",
     "default_locale": "en",
     "permissions": [
@@ -24,7 +24,8 @@
         "http://localhost:11434/*",
         "http://127.0.0.1:11434/*",
         "http://localhost:1234/*",
-        "http://127.0.0.1:1234/*"
+        "http://127.0.0.1:1234/*",
+        "https://qrcode.doglab24.org/*"
     ],
     "background": {
         "service_worker": "background.js",
@@ -53,18 +54,21 @@
                 "config.js",
                 "content.js",
                 "lib/html2pdf.bundle.min.js",
-                "lib/pdfobject.min.js"
+                "lib/pdfobject.min.js",
+                "lib/qrcode.js"
             ],
             "run_at": "document_end"
         }
     ],
     "web_accessible_resources": [
         {
-        "resources": [ 
-            "lib/pdfobject.min.js",
-            "lib/html2pdf.bundle.min.js"
-         ],
-        "matches": [ "<all_urls>" ]
+            "resources": [
+                "lib/pdfobject.min.js",
+                "lib/html2pdf.bundle.min.js"
+            ],
+            "matches": [
+                "<all_urls>"
+            ]
         }
     ],
     "icons": {

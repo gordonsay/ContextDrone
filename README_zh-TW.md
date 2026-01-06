@@ -3,7 +3,7 @@
 
 [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-Available-blue?logo=google-chrome&logoColor=white)](https://chromewebstore.google.com/detail/okjnafabngnahdppmbnmefofokpegccm?utm_source=item-share-cb)
 [![English](https://img.shields.io/badge/Language-English-blue)](README.md)
-![Version](https://img.shields.io/badge/version-1.6.2-blue)
+![Version](https://img.shields.io/badge/version-1.6.3-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 **Context-Carry（語境傳輸器）** 是一款輕量 Chrome 擴充功能，讓你能擷取、清理、整理文字或程式碼片段，並直接拖放傳到不同 AI 工具或本地 LLM，避免格式混亂與重複複製貼上。

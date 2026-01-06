@@ -4,7 +4,7 @@
         "description": "The name of the extension"
     },
     "appDesc": {
-        "message": "Stop losing context! Export chat history from ChatGPT, Claude, Gemini & Grok. Seamless Cross-LLM transfer & prompt management.",
+        "message": "Stop losing context! \n\nCollect and Export chat history. \n\nSeamless Cross-LLM transfer & prompt management.",
         "description": "The description of the extension"
     }
 }

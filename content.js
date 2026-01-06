@@ -7,7 +7,17 @@
     if (window._cc_is_injected) return;
     window._cc_is_injected = true;
 
-    const userLang = (navigator.language && navigator.language.startsWith('zh')) ? 'zh' : 'en';
+    const navLang = (navigator.language || 'en').toLowerCase();
+    let userLang = 'en';
+    if (navLang.startsWith('zh-cn') || navLang.startsWith('zh-sg')) {
+        userLang = 'zh-CN';
+    } else if (navLang.startsWith('zh')) {
+        userLang = 'zh-TW';
+    } else if (navLang.startsWith('ja')) {
+        userLang = 'ja';
+    } else if (navLang.startsWith('ko')) {
+        userLang = 'ko';
+    }
 
     const CONFIG = window.CC_CONFIG || { PLATFORMS: [], APP_CONFIG: {}, MODEL_PRESETS: {} };
     const { PLATFORMS, APP_CONFIG, MODEL_PRESETS } = CONFIG;
@@ -44,6 +54,127 @@
     let draggedItem = null;
     state.workflowConnections = [];
     let updateHoverCardUI = () => { };
+
+    const pinManager = {
+        pins: [],
+        overlay: null,
+        onChange: null,
+
+        init() {
+            if (this.overlay) return;
+            this.overlay = document.createElement('div');
+            this.overlay.id = 'cc-pin-overlay';
+            Object.assign(this.overlay.style, {
+                position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
+                zIndex: '2147483650', pointerEvents: 'none', overflow: 'hidden'
+            });
+            document.body.appendChild(this.overlay);
+            this.startSync();
+        },
+
+        addPin(targetEl, offsetX = 0, offsetY = 0) {
+            this.init();
+
+            let text = (targetEl.innerText || "").substring(0, 30).replace(/[\n\r]/g, '');
+            if (!text) text = "Location " + (this.pins.length + 1);
+            else text += "...";
+
+            const pin = document.createElement('div');
+            pin.className = 'cc-chat-pin-marker';
+            pin.innerHTML = '📌';
+            pin.title = "Click to remove";
+            pin.style.pointerEvents = 'auto';
+            pin.style.position = 'absolute';
+            pin.style.cursor = 'pointer';
+            pin.style.filter = 'drop-shadow(0 2px 2px rgba(0,0,0,0.5))';
+
+            const id = Date.now() + Math.random();
+
+            pin.onclick = (e) => {
+                e.stopPropagation();
+                this.removePin(id);
+            };
+
+            this.overlay.appendChild(pin);
+
+            this.pins.push({ id, pinEl: pin, targetEl, text, offsetX, offsetY });
+
+            this.updatePositions();
+            if (this.onChange) this.onChange();
+        },
+
+        removePin(id) {
+            const index = this.pins.findIndex(p => p.id === id);
+            if (index !== -1) {
+                const { pinEl } = this.pins[index];
+                pinEl.style.transform = 'scale(0)';
+                setTimeout(() => pinEl.remove(), 200);
+                this.pins.splice(index, 1);
+
+                if (this.onChange) this.onChange();
+            }
+        },
+
+        scrollToPin(id) {
+            const pinObj = this.pins.find(p => p.id === id);
+            if (pinObj && pinObj.targetEl) {
+                pinObj.targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+                const originalTrans = pinObj.targetEl.style.transition;
+                const originalBg = pinObj.targetEl.style.backgroundColor;
+
+                pinObj.targetEl.style.transition = "background-color 0.5s";
+                pinObj.targetEl.style.backgroundColor = "rgba(255, 152, 0, 0.3)";
+
+                setTimeout(() => {
+                    pinObj.targetEl.style.backgroundColor = originalBg;
+                    setTimeout(() => {
+                        pinObj.targetEl.style.transition = originalTrans;
+                    }, 500);
+                }, 1000);
+            }
+        },
+
+        updatePositions() {
+            let changed = false;
+            this.pins = this.pins.filter(p => {
+                if (!document.body.contains(p.targetEl)) {
+                    p.pinEl.remove();
+                    changed = true;
+                    return false;
+                }
+                return true;
+            });
+
+            if (changed && this.onChange) this.onChange();
+
+            this.pins.forEach(p => {
+                const rect = p.targetEl.getBoundingClientRect();
+                if (rect.width === 0 && rect.height === 0) {
+                    p.pinEl.style.display = 'none';
+                    return;
+                }
+                p.pinEl.style.display = 'block';
+
+                const relX = p.offsetX || -10;
+                const relY = p.offsetY || -25;
+
+                const pinTop = rect.top + relY;
+                const pinLeft = rect.left + relX;
+
+                p.pinEl.style.top = `${pinTop}px`;
+                p.pinEl.style.left = `${pinLeft}px`;
+            });
+        },
+
+        startSync() {
+            const loop = () => {
+                if (this.pins.length > 0) this.updatePositions();
+                requestAnimationFrame(loop);
+            };
+            loop();
+        }
+    };
 
     function shouldShowAI() {
         if (!IS_STORE_BUILD) return true;
@@ -238,7 +369,7 @@
             style.id = 'cc-styles';
 
 
-            style.textContent = CC_STYLES;
+            style.textContent = CC_STYLES + LANG_MENU_CSS;
 
             (document.head || document.documentElement).appendChild(style);
         } catch (e) {
@@ -1164,14 +1295,14 @@
             const pipBtn = document.createElement('button');
             pipBtn.className = 'cc-icon-btn';
             pipBtn.innerText = '⏏';
-            pipBtn.title = "Open Independent Window (PiP)";
+            pipBtn.title = t.btn_pip;
             pipBtn.onclick = openDedicatedPiP;
             controls.appendChild(pipBtn);
         }
         const robotBtn = document.createElement('button');
         robotBtn.className = 'cc-icon-btn';
         robotBtn.innerText = '🚁';
-        robotBtn.title = "Switch to Sky-Crane UI";
+        robotBtn.title = t.btn_switch_ui_robot;
         robotBtn.onclick = () => toggleUIMode('robot');
         controls.appendChild(robotBtn);
 
@@ -1180,13 +1311,12 @@
         langBtn.className = 'cc-icon-btn';
         langBtn.textContent = '🌐';
         langBtn.title = t.btn_lang_title + t.hint_shortcut_lang;
-        langBtn.onclick = function () {
-            const oldLang = state.lang;
-            const newLang = oldLang === 'zh' ? 'en' : 'zh';
-            switchPromptLanguage(oldLang, newLang);
-            state.lang = newLang;
-            updateUITexts();
-        };
+        if (langBtn) {
+            langBtn.onclick = (e) => {
+                e.stopPropagation();
+                showLanguageMenu(langBtn);
+            };
+        }
         controls.appendChild(langBtn);
         const themeBtn = document.createElement('button');
         themeBtn.id = 'cc-btn-theme';
@@ -1550,6 +1680,11 @@
             }
             initDroneDOM();
         });
+
+        pinManager.onChange = () => {
+            if (typeof updateHoverCardUI === 'function') updateHoverCardUI();
+        };
+
         function initDroneDOM() {
             let selectionState = {};
 
@@ -1603,8 +1738,16 @@
             });
 
             drone.title = LANG_DATA[state.lang].drone_title;
+            const t = (state.langData && state.langData[state.lang]) ? state.langData[state.lang] : {};
             drone.innerHTML = `
-                <div class="drone-close-btn" title="${LANG_DATA[state.lang].drone_dismiss}">✕</div>
+                <div class="drone-action-btn drone-btn-tl" id="drone-btn-paint" title="${t.btn_paint + t.hint_shortcut_paint || 'Area Selection (ALT+C)'}">🖌️</div>
+
+                <div class="drone-action-btn drone-btn-tr" id="drone-btn-close" title="${t.drone_dismiss || 'Close'}">✕</div>
+
+                <div class="drone-action-btn drone-btn-bl" id="drone-btn-pin" title="${t.btn_ping || 'Drag to Pin'}" draggable="true">📌</div>
+
+                <div class="drone-action-btn drone-btn-br" id="drone-btn-qr" title="${t.btn_qrcode || 'QR Code'}">📱</div>
+
                 <svg width="36" height="36" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="pointer-events:none;">
                     <path d="M12 2L15 8H9L12 2Z" fill="#00d2ff" fill-opacity="0.8"/>
                     <path d="M2 12L8 9L12 11L16 9L22 12" stroke="#e0e6ed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1619,7 +1762,10 @@
             document.body.appendChild(drone);
 
             const badgeEl = drone.querySelector('#cc-drone-badge');
-            const closeEl = drone.querySelector('.drone-close-btn');
+            const paintBtn = drone.querySelector('#drone-btn-paint');
+            const closeBtn = drone.querySelector('#drone-btn-close');
+            const pinBtn = drone.querySelector('#drone-btn-pin');
+            const qrBtn = drone.querySelector('#drone-btn-qr');
 
             const card = document.createElement('div');
             card.className = 'cc-hover-card';
@@ -1629,10 +1775,16 @@
                     <span id="cc-card-label">Cargo: 0</span>
                     <span class="cc-select-all">Select All</span>
                 </div>
+                
+                <div id="cc-pin-section" style="display:none; border-bottom:1px solid #444; margin-bottom:5px; padding-bottom:5px;">
+                    <div style="font-size:10px; color:#aaa; padding:0 10px; margin-bottom:4px; font-weight:bold;">📍 CURRENT LOCATIONS</div>
+                    <div id="cc-pin-list" style="max-height:100px; overflow-y:auto;"></div>
+                </div>
+
                 <div class="cc-list-container" id="cc-list-container"></div>
                 <div class="cc-card-footer">
-                    <button class="cc-btn-xs cc-btn-primary-xs" id="cc-paste-btn">📋 Paste</button>
-                    <button class="cc-btn-xs" id="cc-export-btn" title="Export ">💾</button>
+                    <button class="cc-btn-xs cc-btn-primary-xs" id="cc-paste-btn" title="Paste">📋</button>
+                    <button class="cc-btn-xs" id="cc-export-btn" title="Export">💾</button>
                     <button class="cc-btn-xs" id="cc-clear-btn" title="Clear">🗑️</button>
                     <button class="cc-btn-xs" id="cc-expand-btn" title="Expand">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1644,11 +1796,56 @@
             document.body.appendChild(card);
 
             const listContainer = card.querySelector('#cc-list-container');
+            const pinSection = card.querySelector('#cc-pin-section');
+            const pinListEl = card.querySelector('#cc-pin-list');
 
             updateHoverCardUI = updateDroneVisuals = () => {
                 const curT = LANG_DATA[state.lang];
-
                 const total = basket.length;
+
+                const pins = pinManager.pins;
+                if (pins.length > 0) {
+                    pinSection.style.display = 'block';
+                    pinListEl.innerHTML = '';
+                    pins.forEach(p => {
+                        const row = document.createElement('div');
+                        Object.assign(row.style, {
+                            padding: '4px 10px', fontSize: '11px', color: '#eee',
+                            cursor: 'pointer', display: 'flex', justifyContent: 'space-between',
+                            alignItems: 'center', transition: 'background 0.2s'
+                        });
+                        row.onmouseover = () => row.style.background = 'rgba(255,255,255,0.1)';
+                        row.onmouseout = () => row.style.background = 'transparent';
+
+                        row.onclick = (e) => {
+                            e.stopPropagation();
+                            pinManager.scrollToPin(p.id);
+                        };
+
+                        row.innerHTML = `
+                            <div style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                                <span style="margin-right:4px;">📌</span>${escapeHTML(p.text)}
+                            </div>
+                        `;
+
+                        const delBtn = document.createElement('span');
+                        delBtn.innerHTML = '✕';
+                        delBtn.style.color = '#888';
+                        delBtn.style.paddingLeft = '8px';
+                        delBtn.onmouseover = () => delBtn.style.color = '#ff5252';
+                        delBtn.onmouseout = () => delBtn.style.color = '#888';
+                        delBtn.onclick = (e) => {
+                            e.stopPropagation();
+                            pinManager.removePin(p.id);
+                        };
+
+                        row.appendChild(delBtn);
+                        pinListEl.appendChild(row);
+                    });
+                } else {
+                    pinSection.style.display = 'none';
+                }
+
                 badgeEl.textContent = total;
                 badgeEl.classList.toggle('visible', total > 0);
                 if (total > 0) {
@@ -1725,9 +1922,6 @@
                             const [moved] = order.splice(fromIndex, 1);
                             order.splice(toIndex, 0, moved);
 
-                            // selectionState = {};
-                            // basket.forEach((it) => { if (it && it.id) selectionState[it.id] = true; });
-
                             basketOp({ kind: 'REORDER', order }, () => {
                                 updateBasketUI();
                             });
@@ -1739,13 +1933,13 @@
                 const activeCount = basket.filter(it => it && it.id && selectionState[it.id]).length;
                 const pasteBtn = card.querySelector('#cc-paste-btn');
                 const pasteTxt = curT.pip_btn_paste || "Paste";
-                
+
                 if (activeCount > 0) {
-                    pasteBtn.innerHTML = `📋 ${pasteTxt} (${activeCount})`;
+                    pasteBtn.innerHTML = `📋(${activeCount})`;
                     pasteBtn.style.opacity = '1';
                     pasteBtn.style.cursor = 'pointer';
                 } else {
-                    pasteBtn.innerHTML = `📋 items`;
+                    pasteBtn.innerHTML = `📋`;
                     pasteBtn.style.opacity = '0.5';
                     pasteBtn.style.cursor = 'default';
                 }
@@ -1775,7 +1969,7 @@
                     if (selectedItems.length > 0) {
                         currentBasket = selectedItems;
                     } else {
-                        showToast("No items selected!"); 
+                        showToast("No items selected!");
                         return;
                     }
 
@@ -1801,7 +1995,7 @@
                 } else {
                     showToast("Please select items to paste 📋");
                     return;
-                    
+
                 }
             };
 
@@ -1862,7 +2056,7 @@
             };
 
             drone.addEventListener('mousedown', (e) => {
-                if (e.target === closeEl) return;
+                if (e.target.closest('.drone-action-btn')) return;
                 isDragging = true;
                 hasMoved = false;
                 startX = e.clientX; startY = e.clientY;
@@ -1883,12 +2077,13 @@
             };
 
             drone.addEventListener('click', (e) => {
-                if (hasMoved || e.target === closeEl) return;
+                if (hasMoved || e.target.closest('.drone-action-btn')) return;
                 toggleInterface();
                 card.classList.remove('visible');
             });
 
-            closeEl.addEventListener('click', (e) => {
+            // Close
+            closeBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 chrome.storage.local.get(['cc_disabled_domains'], (res) => {
                     const list = res.cc_disabled_domains || [];
@@ -1898,10 +2093,364 @@
                         chrome.storage.local.set({ cc_disabled_domains: list });
                     }
                 });
+
                 drone.style.transform = "scale(0)";
                 setTimeout(() => { cleanupDrone(); }, 200);
             });
 
+            // Paint
+            paintBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+
+                if (typeof toggleSelectionMode === 'function') {
+                    toggleSelectionMode();
+
+                    paintBtn.style.transform = "scale(0.8)";
+                    setTimeout(() => paintBtn.style.transform = "", 150);
+
+                    const card = document.querySelector('.cc-hover-card');
+                    if (card) card.classList.remove('visible');
+                }
+            });
+
+            // QR Code
+            qrBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+
+                const IS_PAID_USER = false;
+                const MAX_FREE_LIMIT = 10;
+                const WATERMARK_START_AT = 5;
+                const STORAGE_KEY = 'cc_qr_beta_usage';
+
+                const getUsageCount = () => new Promise(resolve => {
+                    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+                        chrome.storage.local.get([STORAGE_KEY], (res) => resolve(res[STORAGE_KEY] || 0));
+                    } else { resolve(0); }
+                });
+
+                const incrementUsageCount = (current) => {
+                    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+                        chrome.storage.local.set({ [STORAGE_KEY]: current + 1 });
+                    }
+                };
+
+                let currentUsage = await getUsageCount();
+                let remaining = Math.max(0, MAX_FREE_LIMIT - currentUsage);
+
+                const betaLimitTexts = {
+                    'en': {
+                        title: "Beta Limit Reached",
+                        msg: "To keep our servers fast and free during the Beta, daily transfer limits are applied.",
+                        q: "Do you find this feature useful?",
+                        sub: "Let us know if you want unlimited access in the future.",
+                        btn_yes: "Yes, I want Unlimited Access! 🚀",
+                        btn_thanks: "Thanks for your feedback! ❤️",
+                        close: "Close"
+                    },
+                    'zh-TW': {
+                        title: "已達 Beta 測試限制",
+                        msg: "為了確保 Beta 期間的伺服器速度與免費服務，我們設有傳輸限制。",
+                        q: "您覺得這個功能實用嗎？",
+                        sub: "讓我們知道您是否希望未來能無限使用。",
+                        btn_yes: "是的，我想要無限使用！ 🚀",
+                        btn_thanks: "感謝您的回饋！ ❤️",
+                        close: "關閉"
+                    },
+                    'zh-CN': {
+                        title: "已达 Beta 测试限制",
+                        msg: "为了确保 Beta 期间的服务器速度与免费服务，我们设有传输限制。",
+                        q: "您觉得这个功能实用吗？",
+                        sub: "让我们知道您是否希望未来能无限使用。",
+                        btn_yes: "是的，我想要无限使用！ 🚀",
+                        btn_thanks: "感谢您的反馈！ ❤️",
+                        close: "关闭"
+                    },
+                    'ja': {
+                        title: "ベータ版の制限に達しました",
+                        msg: "ベータ期間中のサーバー速度と無料提供を維持するため、転送制限を設けています。",
+                        q: "この機能は役に立ちましたか？",
+                        sub: "将来的に無制限アクセスをご希望かお知らせください。",
+                        btn_yes: "はい、無制限アクセスが欲しいです！ 🚀",
+                        btn_thanks: "フィードバックありがとうございます！ ❤️",
+                        close: "閉じる"
+                    },
+                    'ko': {
+                        title: "베타 한도 도달",
+                        msg: "베타 기간 동안 서버 속도와 무료 제공을 유지하기 위해 일일 전송 제한이 적용됩니다.",
+                        q: "이 기능이 유용했나요?",
+                        sub: "나중에 무제한 액세스를 원하시는지 알려주세요.",
+                        btn_yes: "네, 무제한 이용을 원해요! 🚀",
+                        btn_thanks: "피드백 감사합니다! ❤️",
+                        close: "닫기"
+                    }
+                };
+
+                const lt = betaLimitTexts[state.lang] || betaLimitTexts['en'];
+
+                if (currentUsage >= MAX_FREE_LIMIT) {
+                    const existing = document.querySelector('.cc-qr-modal');
+                    if (existing) existing.remove();
+
+                    const limitModal = document.createElement('div');
+                    limitModal.className = 'cc-qr-modal';
+                    Object.assign(limitModal.style, {
+                        position: 'fixed', top: '0', left: '0', width: '100vw', height: '100vh',
+                        zIndex: '2147483660', backgroundColor: 'rgba(0,0,0,0.85)',
+                        backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    });
+
+                    limitModal.innerHTML = `
+                        <div class="cc-qr-card" style="background: #fff; padding: 30px; border-radius: 12px; max-width: 340px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.6); position: relative;">
+                            <div style="font-size: 40px; margin-bottom: 10px;">🚧</div>
+                            <h3 style="margin: 0 0 10px 0; color: #333;">${lt.title}</h3>
+                            <p style="font-size: 14px; color: #666; line-height: 1.5; margin-bottom: 20px;">
+                                ${lt.msg}<br><br>
+                                <strong>${lt.q}</strong><br>
+                                ${lt.sub}
+                            </p>
+                            
+                            <button id="cc-btn-vote" style="width: 100%; padding: 12px; background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin-bottom: 10px; box-shadow: 0 4px 15px rgba(0, 210, 255, 0.3);">
+                                ${lt.btn_yes}
+                            </button>
+                            
+                            <button id="cc-close-limit" style="background: none; border: none; color: #999; font-size: 12px; cursor: pointer; text-decoration: underline;">${lt.close}</button>
+                        </div>
+                    `;
+
+                    document.body.appendChild(limitModal);
+
+                    limitModal.querySelector('#cc-close-limit').onclick = () => limitModal.remove();
+
+                    limitModal.querySelector('#cc-btn-vote').onclick = () => {
+                        const btn = limitModal.querySelector('#cc-btn-vote');
+                        btn.innerText = lt.btn_thanks;
+                        btn.style.background = "#4CAF50";
+                        btn.disabled = true;
+
+                        fetch('https://qrcode.doglab24.org/api/feedback', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                event: 'limit_reached_interest',
+                                timestamp: Date.now(),
+                                lang: state.lang || 'en'
+                            })
+                        }).catch(err => console.error("Feedback failed", err));
+
+                        console.log("User voted for paid feature! (Sent to server)");
+
+                        setTimeout(() => limitModal.remove(), 1500);
+                    };
+
+                    return;
+                }
+
+                let basketItems = [];
+                const selectedItems = basket.filter(it => it && it.id && selectionState[it.id]);
+                if (selectedItems.length > 0) basketItems = selectedItems;
+
+                let pageSelectedText = "";
+                if (typeof getSelectedText === 'function') pageSelectedText = getSelectedText(false) || "";
+
+                if (basketItems.length === 0 && !pageSelectedText) {
+                    showToast("No items selected! 📱");
+                    return;
+                }
+
+                const css = `
+                    body { font-family: sans-serif; padding: 20px; background: #f9f9f9; color: #333; line-height: 1.6; position: relative; min-height: 100vh; }
+                    .card { background: #fff; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 4px solid #00d2ff; position: relative; z-index: 1; }
+                    .header { text-align: center; margin-bottom: 20px; color: #555; border-bottom: 2px solid #ddd; padding-bottom: 10px; z-index: 1; position: relative; }
+                    .content { white-space: pre-wrap; word-break: break-word; font-size: 14px; }
+                    .tag { display: inline-block; background: #eee; padding: 2px 6px; border-radius: 4px; font-size: 10px; color: #555; }
+                    
+                    .watermark-container {
+                        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                        pointer-events: none; z-index: 9999;
+                        display: flex; flex-wrap: wrap; align-content: flex-start;
+                        overflow: hidden; opacity: 0.08;
+                    }
+                    .watermark-text {
+                        width: 200px; height: 150px; display: flex; align-items: center; justify-content: center;
+                        transform: rotate(-30deg); font-size: 18px; font-weight: bold; color: #000;
+                    }
+                    @media print { .watermark-container { opacity: 0.15; } }
+                `;
+
+                let htmlContent = `<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body>`;
+
+                if (!IS_PAID_USER && currentUsage >= WATERMARK_START_AT) {
+                    let watermarks = "";
+                    for (let i = 0; i < 30; i++) watermarks += `<div class="watermark-text">Context Carry<br>Beta Version</div>`;
+                    htmlContent += `<div class="watermark-container">${watermarks}</div>`;
+                }
+
+                htmlContent += `<div class="header">Context-Carry Share<br><span style="font-size:10px; font-weight:normal;">${new Date().toLocaleString()}</span></div>`;
+
+                if (pageSelectedText) {
+                    htmlContent += `<div class="card" style="border-left-color: #ff9800;"><div style="font-size:12px; color:#999;">📄 Selection</div><div class="content">${escapeHTML(pageSelectedText)}</div></div>`;
+                }
+
+                basketItems.forEach(item => {
+                    const tagsHtml = (item.tags && item.tags.length) ? item.tags.map(t => `<span class="tag">#${t}</span>`).join('') : '';
+                    htmlContent += `<div class="card"><div style="font-size:12px; color:#999;">SOURCE: ${escapeHTML(item.source || 'Unknown')}</div><div class="content">${escapeHTML(item.text)}</div><div style="margin-top:8px;">${tagsHtml}</div></div>`;
+                });
+                htmlContent += `</body></html>`;
+
+
+                const existing = document.querySelector('.cc-qr-modal');
+                if (existing) existing.remove();
+
+                const modal = document.createElement('div');
+                modal.className = 'cc-qr-modal';
+                Object.assign(modal.style, {
+                    position: 'fixed', top: '0', left: '0', width: '100vw', height: '100vh',
+                    zIndex: '2147483660', backgroundColor: 'rgba(0,0,0,0.8)',
+                    backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                });
+
+                let footerMsg = IS_PAID_USER
+                    ? `✨ Premium: Unlimited Access`
+                    : `⚠️ Free Scans Left: ${remaining}`;
+
+                modal.innerHTML = `
+                    <div class="cc-qr-card" style="background: #fff; padding: 25px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; max-width: 90%;">
+                        <div id="qr-status-text" style="font-weight:bold; margin-bottom:15px; color:#333;">☁️ Processing...</div>
+                        <div id="qrcode-container" style="background:#f5f5f5; padding:20px; border-radius:8px; min-width:200px; min-height:200px; display:flex; justify-content:center; align-items:center;">
+                            <div class="cc-spinner" style="border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite;"></div>
+                        </div>
+                        <div id="qr-footer-text" style="font-size:11px; color:#666; margin-top:15px; text-align: center;">${footerMsg}</div>
+                        
+                        <button id="cc-close-qr" style="margin-top:20px; padding:8px 30px; cursor:pointer; background:#333; color: #fff; border:none; border-radius:6px;">${lt.close}</button>
+                    </div>
+                    <style>@keyframes spin {0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); }}</style>
+                `;
+
+                modal.querySelector('#cc-close-qr').onclick = () => modal.remove();
+                document.body.appendChild(modal);
+
+                const container = modal.querySelector('#qrcode-container');
+                const statusText = modal.querySelector('#qr-status-text');
+
+                try {
+                    const retentionType = IS_PAID_USER ? 'long' : 'short';
+                    const secureLink = await uploadToMyServerSecure(htmlContent, retentionType);
+
+                    if (!IS_PAID_USER) {
+                        incrementUsageCount(currentUsage);
+                        currentUsage += 1;
+                        remaining = Math.max(0, MAX_FREE_LIMIT - currentUsage);
+                        modal.querySelector('#qr-footer-text').innerText = `⚠️ Free Scans Left: ${remaining}`;
+                    }
+
+                    statusText.innerText = "📱 Scan to View";
+                    container.innerHTML = '';
+
+                    if (typeof qrcode === 'function') {
+                        const qr = qrcode(0, 'L');
+                        qr.addData(secureLink);
+                        qr.make();
+                        container.innerHTML = qr.createImgTag(5, 10);
+                        const img = container.querySelector('img');
+                        if (img) { img.style.maxWidth = '100%'; img.style.height = 'auto'; }
+                    }
+                } catch (err) {
+                    console.error(err);
+                    statusText.innerText = "Error";
+                    container.innerHTML = `<div style="color:red; font-size:12px;">Failed to upload.<br>${err.message}</div>`;
+                }
+            });
+
+            async function uploadToMyServerSecure(htmlContent, retentionType = 'short') {
+                const key = await window.crypto.subtle.generateKey(
+                    { name: "AES-GCM", length: 256 },
+                    true,
+                    ["encrypt", "decrypt"]
+                );
+
+                const iv = window.crypto.getRandomValues(new Uint8Array(12));
+                const encoder = new TextEncoder();
+                const encodedData = encoder.encode(htmlContent);
+
+                const encryptedBuffer = await window.crypto.subtle.encrypt(
+                    { name: "AES-GCM", iv: iv },
+                    key,
+                    encodedData
+                );
+
+                const contentB64 = arrayBufferToBase64(encryptedBuffer);
+                const ivB64 = arrayBufferToBase64(iv);
+
+
+                const DOMAIN = 'https://qrcode.doglab24.org';
+                const API_ENDPOINT = `${DOMAIN}/api/upload`;
+
+                const uploadPayload = JSON.stringify({
+                    data: contentB64,
+                    iv: ivB64
+                });
+
+                const response = await fetch(API_ENDPOINT, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Secret-Token': 'dogegg-qrcode-generator'
+                    },
+                    body: JSON.stringify({
+                        content: uploadPayload,
+                        type: retentionType
+                    })
+                });
+
+                if (!response.ok) throw new Error("Upload Failed: " + response.statusText);
+
+                const resJson = await response.json();
+                const exportedKey = await window.crypto.subtle.exportKey("jwk", key);
+                const keyString = btoa(JSON.stringify(exportedKey));
+                const VIEWER_URL = `${DOMAIN}/viewer.html`;
+
+                return `${VIEWER_URL}?id=${resJson.id}&type=${resJson.type}#${keyString}`;
+            }
+
+            function arrayBufferToBase64(buffer) {
+                let binary = '';
+                const bytes = new Uint8Array(buffer);
+                const len = bytes.byteLength;
+                for (let i = 0; i < len; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                return window.btoa(binary);
+            }
+
+            // Pin
+            pinBtn.addEventListener('dragstart', (e) => {
+                e.stopPropagation();
+                e.dataTransfer.setData('application/cc-pin', 'true');
+                e.dataTransfer.effectAllowed = 'copy';
+
+                const dragIcon = document.createElement('div');
+                dragIcon.innerText = '📌';
+                dragIcon.style.fontSize = '24px';
+                document.body.appendChild(dragIcon);
+                e.dataTransfer.setDragImage(dragIcon, 12, 12);
+                setTimeout(() => dragIcon.remove(), 0);
+
+                pinBtn.style.opacity = '0.5';
+                document.body.classList.add('cc-pin-dragging');
+            });
+
+            pinBtn.addEventListener('dragend', (e) => {
+                e.stopPropagation();
+                pinBtn.style.opacity = '';
+                document.body.classList.remove('cc-pin-dragging');
+            });
+
+            pinBtn.addEventListener('click', (e) => e.stopPropagation());
+
+
+            // Drag & Drop
             drone.addEventListener('dragover', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1964,6 +2513,69 @@
 
             initData();
         }
+    }
+
+    function initPinDropLogic() {
+        let lastTarget = null;
+
+        document.addEventListener('dragover', (e) => {
+            if (!e.dataTransfer) return;
+            if (!e.dataTransfer.types.includes('application/cc-pin')) return;
+
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
+
+            const target = e.target;
+
+            if (target.closest('#cc-drone-fab') || target.closest('.cc-chat-pin-marker') || target.closest('.cc-panel') || target.closest('.cc-modal-mask')) {
+                return;
+            }
+
+            const blockTarget = target.closest('div, p, section, article, li, pre');
+
+            if (blockTarget && blockTarget !== lastTarget) {
+                if (lastTarget) lastTarget.classList.remove('cc-pin-target-highlight');
+                blockTarget.classList.add('cc-pin-target-highlight');
+                lastTarget = blockTarget;
+            }
+        }, true);
+
+        document.addEventListener('dragleave', (e) => {
+            if (!e.dataTransfer) return;
+            if (!e.dataTransfer.types.includes('application/cc-pin')) return;
+            if (lastTarget && !lastTarget.contains(e.relatedTarget)) {
+                lastTarget.classList.remove('cc-pin-target-highlight');
+                lastTarget = null;
+            }
+        }, true);
+
+        document.addEventListener('drop', (e) => {
+            if (!e.dataTransfer) return;
+            if (!e.dataTransfer.types.includes('application/cc-pin')) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (lastTarget) {
+                lastTarget.classList.remove('cc-pin-target-highlight');
+                lastTarget = null;
+            }
+
+            const target = e.target.closest('div, p, section, article, li, pre') || e.target;
+
+            if (target.closest('#cc-drone-fab') || target.closest('.cc-panel')) return;
+
+            const rect = target.getBoundingClientRect();
+            const offsetX = e.clientX - rect.left;
+            const offsetY = e.clientY - rect.top;
+
+            pinManager.addPin(target, offsetX - 12, offsetY - 24);
+
+            if (typeof showToast === 'function') {
+                showToast("Location Pinned 📌");
+            }
+
+        }, true);
     }
 
     function updateDroneUI(providedBasket) {
@@ -2109,18 +2721,18 @@
         const langSwitch = document.createElement('div');
         langSwitch.className = 'power-btn';
         langSwitch.id = 'mech-btn-lang';
-        if (state.lang === 'en') langSwitch.classList.add('active');
+
         langSwitch.title = t.btn_lang_title + t.hint_shortcut_lang;
         langSwitch.style.borderColor = '#4CAF50';
-        langSwitch.onclick = function () {
-            const oldLang = state.lang;
-            const newLang = oldLang === 'zh' ? 'en' : 'zh';
-            switchPromptLanguage(oldLang, newLang);
-            state.lang = newLang;
-            this.classList.toggle('active');
-            updateUITexts();
-            const statusText = document.getElementById('mech-status-text');
-            if (statusText) statusText.innerText = LANG_DATA[newLang].status_ready;
+
+        langSwitch.onclick = function (e) {
+            e.stopPropagation();
+
+            if (typeof showLanguageMenu === 'function') {
+                showLanguageMenu(this);
+            } else {
+                console.error('showLanguageMenu function not found');
+            }
         };
 
         powerGroup.append(uiSwitch, themeSwitch, langSwitch);
@@ -2135,7 +2747,7 @@
             ejectBtn.className = 'mech-close-btn';
             ejectBtn.id = 'mech-btn-eject';
             ejectBtn.innerText = '⏏';
-            ejectBtn.title = "Pop out (PiP Mode)";
+            ejectBtn.title = t.btn_pip;
             ejectBtn.style.borderColor = '#00d2ff';
             ejectBtn.style.color = '#00d2ff';
             ejectBtn.style.background = 'rgba(0, 210, 255, 0.1)';
@@ -3411,16 +4023,32 @@
         const drone = document.getElementById('cc-drone-fab');
         if (drone) {
             drone.title = t.drone_title;
-            const closeBtn = drone.querySelector('.drone-close-btn');
-            if (closeBtn) closeBtn.title = t.drone_dismiss;
+
+            const btnPaint = document.getElementById('drone-btn-paint');
+            if (btnPaint) btnPaint.title = t.btn_paint + t.hint_shortcut_paint;
+
+            const btnClose = document.getElementById('drone-btn-close');
+            if (btnClose) btnClose.title = t.drone_dismiss;
+
+            const pinBtn = drone.querySelector('#drone-btn-pin');
+            if (pinBtn) pinBtn.title = t.btn_ping;
+
+            const qrBtn = drone.querySelector('#drone-btn-qr');
+            if (qrBtn) qrBtn.title = t.btn_qrcode;
 
             const card = document.querySelector('.cc-hover-card');
             if (card) {
+                const btnPaste = card.querySelector('#cc-paste-btn');
+                if (btnPaste) btnPaste.title = t.pip_btn_paste;
+
+                const btnExport = card.querySelector('#cc-export-btn');
+                if (btnExport) btnExport.title = t.pip_btn_export;
+
                 const btnClear = card.querySelector('#cc-clear-btn');
                 if (btnClear) btnClear.title = t.btn_clear_basket;
 
                 const btnExpand = card.querySelector('#cc-expand-btn');
-                if (btnExpand) btnExpand.title = t.pip_tooltip_max || "Expand";
+                if (btnExpand) btnExpand.title = t.pip_tooltip_max;
 
                 if (typeof updateHoverCardUI === 'function') updateHoverCardUI();
             }
@@ -3638,6 +4266,68 @@
         calculateTotalTokens();
         updateBasketUI();
         updateMultiNodeTexts();
+    }
+
+    function showLanguageMenu(anchorBtn) {
+        const existing = document.getElementById('cc-lang-popover');
+        if (existing) {
+            existing.remove();
+            return;
+        }
+
+        const menu = document.createElement('div');
+        menu.id = 'cc-lang-popover';
+        menu.className = 'cc-lang-menu';
+
+        const list = window.CC_SUPPORTED_LANGS || [
+            { code: 'en', label: 'English', flag: '🇺🇸' },
+            { code: 'zh-TW', label: '繁體中文', flag: '🇹🇼' },
+            { code: 'zh-CN', label: '简体中文', flag: '🇨🇳' },
+            { code: 'ja', label: '日本語', flag: '🇯🇵' },
+            { code: 'ko', label: '한국어', flag: '🇰🇷' }
+        ];
+
+        list.forEach(item => {
+            const div = document.createElement('div');
+            div.className = `cc-lang-item ${state.lang === item.code ? 'active' : ''}`;
+            div.innerHTML = `<span class="cc-lang-flag">${item.flag}</span><span>${item.label}</span>`;
+
+            div.onclick = (e) => {
+                e.stopPropagation();
+                const oldLang = state.lang;
+                state.lang = item.code;
+                switchPromptLanguage(oldLang, state.lang);
+                updateUITexts();
+                menu.remove();
+            };
+            menu.appendChild(div);
+        });
+
+        document.body.appendChild(menu);
+
+        const rect = anchorBtn.getBoundingClientRect();
+        const menuRect = menu.getBoundingClientRect();
+
+        let top = rect.bottom + 6;
+        let left = rect.left;
+
+        if (left + menuRect.width > window.innerWidth) {
+            left = window.innerWidth - menuRect.width - 10;
+        }
+        if (top + menuRect.height > window.innerHeight) {
+            top = rect.top - menuRect.height - 6;
+        }
+
+        menu.style.top = `${top}px`;
+        menu.style.left = `${left}px`;
+
+        const closeHandler = (e) => {
+            if (!menu.contains(e.target) && e.target !== anchorBtn) {
+                menu.remove();
+                document.removeEventListener('click', closeHandler);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closeHandler), 0);
     }
 
     function updateMultiNodeTexts() {
@@ -4130,7 +4820,7 @@
                 if (basketPreviewList) {
                     basketPreviewList.style.display = 'block';
                     if (count === 0) {
-                        basketPreviewList.innerHTML = `<div style="text-align:center; color:var(--mech-text-dim); padding:15px; font-size:11px; letter-spacing:1px; border:1px dashed var(--mech-border); border-radius:4px;">[ CARGO BAY EMPTY ]</div>`;
+                        basketPreviewList.innerHTML = `<div style="text-align:center; color:var(--mech-text-dim); padding:15px; font-size:11px; letter-spacing:1px; border:1px dashed var(--mech-border); border-radius:4px;">${t.emptyMsg}</div>`;
                     } else {
                         renderBasketPreview(currentBasket);
                     }
@@ -5021,26 +5711,52 @@
             // Alt+C: activate area selection mode
             if (key === 'KeyC') {
                 e.preventDefault();
-                if (!state.active) {
+                const drone = document.getElementById('cc-drone-fab');
+                if (!state.active && !drone) {
                     openInterface();
                 }
                 toggleSelectionMode();
-                const p = document.getElementById('cc-panel');
+                const p = document.getElementById('cc-panel') || document.getElementById('cc-robot-panel');
                 if (p) p.style.opacity = '0.2';
+                if (drone) drone.style.opacity = '0.2';
             }
             // Alt+L: toggle language between zh and en
             if (key === 'KeyL') {
                 e.preventDefault();
+
+                const langList = (window.CC_SUPPORTED_LANGS && window.CC_SUPPORTED_LANGS.length > 0)
+                    ? window.CC_SUPPORTED_LANGS.map(item => item.code)
+                    : ['en', 'zh-TW', 'zh-CN', 'ja', 'ko'];
+
                 const oldLang = state.lang;
-                const newLang = oldLang === 'zh' ? 'en' : 'zh';
-                const currentInput = prefixInput?.value?.trim() || '';
-                const oldDefault = LANG_DATA[oldLang].default_prompt.trim();
-                if (currentInput === oldDefault) {
-                    prefixInput.value = LANG_DATA[newLang].default_prompt;
-                    flashInput(prefixInput);
+
+                const currentIndex = langList.indexOf(oldLang);
+                const nextIndex = (currentIndex + 1) % langList.length;
+                const newLang = langList[nextIndex];
+
+                if (prefixInput && LANG_DATA[oldLang] && LANG_DATA[newLang]) {
+                    const currentInput = prefixInput.value?.trim() || '';
+                    const oldDefault = LANG_DATA[oldLang].default_prompt.trim();
+
+                    if (currentInput === oldDefault) {
+                        prefixInput.value = LANG_DATA[newLang].default_prompt;
+                        if (typeof flashInput === 'function') flashInput(prefixInput);
+                    }
                 }
+
                 state.lang = newLang;
                 updateUITexts();
+                const statusText = document.getElementById('mech-status-text');
+                if (statusText && LANG_DATA[newLang]) {
+                    statusText.innerText = LANG_DATA[newLang].status_ready;
+                }
+
+                if (typeof showToast === 'function') {
+                    const langLabel = (window.CC_SUPPORTED_LANGS && window.CC_SUPPORTED_LANGS[nextIndex])
+                        ? window.CC_SUPPORTED_LANGS[nextIndex].flag + ' ' + window.CC_SUPPORTED_LANGS[nextIndex].label
+                        : newLang.toUpperCase();
+                    showToast(`Language: ${langLabel}`);
+                }
             }
             // Alt+M: toggle the panel visibility
             if (key === 'KeyM') {
@@ -5095,6 +5811,8 @@
         document.removeEventListener('keydown', onEscKey);
         const p = document.getElementById('cc-panel') || document.getElementById('cc-robot-panel');
         if (p) p.style.opacity = '1';
+        const drone = document.getElementById('cc-drone-fab');
+        if (drone) drone.style.opacity = '1';
     }
 
     function resetDrawingState() {
@@ -6643,6 +7361,8 @@
         };
 
         header.querySelector('#btn-close-modal').onclick = () => {
+            isFlowStopped = true;
+            if (typeof AI_QUEUE !== 'undefined') AI_QUEUE.queue = [];
             state.basketListeners.delete(canvasBasketListener);
             mask.remove();
             state.streamingModal = null;
@@ -7711,13 +8431,15 @@
                 const t = LANG_DATA[state.lang];
                 const combinedWarning = t.unlock_warning +
                     `<br/><br/><div style="border-top:1px dashed #555; margin-top:10px; padding-top:10px;">
-                        <b style='color:#ff9800'>⚡ Multi-Node Workflow Warning:</b><br/>
-                        This interface enables advanced multi-step workflows. Running multiple nodes simultaneously will consume tokens faster. Please ensure you monitor your usage.
+                        <b style='color:#ff9800'>${t.warn_resource_title}</b><br/>
+                        ${t.warn_resource_msg1}<br/>
+                        ${t.warn_resource_msg2}<br/>
+                        ${t.warn_resource_msg3}
                     </div>`;
 
                 showFeatureUnlockModal(doc, combinedWarning, () => {
                     chrome.storage.local.set({ 'cc_has_shown_canvas_warning': true }, () => {
-                        checkPiPGuards(win);
+                        checkPiPGuards(win); c
                     });
                 });
             } else if (!res.cc_has_shown_canvas_warning) {
@@ -7761,8 +8483,7 @@
                 <select id="exp-format" class="mech-select">
                     <option value="txt">Text File (.txt)</option>
                     <option value="md">Markdown (.md)</option>
-                    <option value="pdf_direct">PDF (Direct Download - Layout may vary)</option>
-                    <option value="pdf_printer">PDF (System Print - Best Layout)</option>
+                    <option value="pdf_printer">PDF (local printer)</option>
                 </select>
             </div>
 
@@ -7882,11 +8603,11 @@
                 margin: 10,
                 filename: `${name}.pdf`,
                 image: { type: 'jpeg', quality: 0.98 },
-                html2canvas: { scale: 2, useCORS: true },
+                html2canvas: { scale: 1, useCORS: true },
                 jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
                 pagebreak: { mode: 'avoid-all' }
             };
-            // opt.pdfObjectUrl = chrome.runtime.getURL('lib/pdfobject.min.js');
+
             html2pdf().set(opt).from(element).save()
                 .then(() => {
                     overlay.remove();
@@ -8444,8 +9165,8 @@
     }
 
     function runPiPNode(node, win, forceSingleRun = false) {
+        if (!win || win.closed) return;
         if (win.isPiPStopped) return;
-
         const loopMax = win.pipLoopLimit || 1;
         if (!forceSingleRun && node.runCount >= loopMax) return;
 
@@ -9136,4 +9857,5 @@
     }
 
     injectStyles();
+    initPinDropLogic();
 })();

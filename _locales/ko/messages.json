@@ -1,0 +1,10 @@
+{
+    "appName": {
+        "message": "Context-Carry - AI 컨텍스트 전송 도구",
+        "description": "확장 프로그램 이름"
+    },
+    "appDesc": {
+        "message": "대화 맥락을 잃지 마세요!\n\n채팅 기록을 한 번 클릭으로 내보내고, 여러 LLM 간에 매끄럽게 전송하며 프롬프트도 쉽게 관리합니다.",
+        "description": "확장 프로그램 설명"
+    }
+}

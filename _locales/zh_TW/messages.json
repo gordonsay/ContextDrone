@@ -4,7 +4,7 @@
         "description": "擴充功能名稱"
     },
     "appDesc": {
-        "message": "不再丟失對話上下文！一鍵匯出 ChatGPT、Claude、Gemini 與 Grok 的對話紀錄。跨 LLM 無縫轉移與提示詞管理。",
+        "message": "不再丟失對話上下文！\n\n收集並匯出對話紀錄。\n\n跨 LLM 無縫轉移與提示詞管理。",
         "description": "擴充功能描述"
     }
 }

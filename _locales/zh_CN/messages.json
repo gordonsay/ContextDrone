@@ -1,0 +1,10 @@
+{
+    "appName": {
+        "message": "Context-Carry - AI 上下文转移工具",
+        "description": "扩展功能名称"
+    },
+    "appDesc": {
+        "message": "不再丢失对话上下文！\n\n收集并导出对话记录。\n\n跨 LLM 无缝转移与提示词管理。",
+        "description": "扩展功能描述"
+    }
+}
