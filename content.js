@@ -2231,6 +2231,7 @@
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
+                                'x-secret-token': 'dogegg-qrcode-generator'
                             },
                             body: JSON.stringify({
                                 event: 'limit_reached_interest',
