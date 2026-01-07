@@ -112,7 +112,7 @@ To comply with the Chrome Extension Manifest V3 **Blue Argon (Remote Hosted Code
 * **Update Instructions**: If this library needs to be updated in the future, you must re-apply this patch (search for the CDN URL in the source code and clear it).
 
 ## Privacy & License
-[README (繁體中文)](README_zh-TW.md) | [Privacy Policy](PRIVACY.md) | [License (MIT)](LICENSE)
+[README (繁體中文)](README_zh-TW.md) | [Privacy Policy](PRIVACY.md) | [License](LICENSE)
 
 ## Support
 If this extension saved you time, consider buying me a coffee!
