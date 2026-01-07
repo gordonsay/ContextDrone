@@ -107,17 +107,6 @@ git clone https://github.com/gordonsay/Context-Carry.git
 
 ---
 
-## 注意事項 (Important Development Notes)
-
-### 關於 html2pdf.bundle.min.js 的修改
-為了符合 Chrome Extension Manifest V3 的 **Blue Argon (禁止遠端程式碼)** 政策，`lib/html2pdf.bundle.min.js` 已進行手動修改，請勿直接更新或覆蓋此檔案。
-
-* **修改內容**：移除了原始碼中指向 CDN (`https://cdnjs...`) 的 `pdfobject.min.js` 連結。
-* **運作方式**：在 `content.js` 中透過 `opt.pdfObjectUrl` 動態傳入本地檔案路徑 (`lib/pdfobject.min.js`)。
-* **未來更新指南**：若需更新此套件，必須重新執行上述修改步驟（搜尋並清空 CDN 網址）。
-
----
-
 ## 隱私與授權
 [README (英文)](README.md) | [隱私](PRIVACY.md) | [授權](LICENSE)
 
