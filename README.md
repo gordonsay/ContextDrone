@@ -1,4 +1,4 @@
-# Context-Carry
+# ContextDrone (Context-Carry)
 ### Move your context across ChatGPT, Claude, Gemini & Grok — instantly.
 
 [![Chrome Web Store](https://img.shields.io/badge/Chrome_Web_Store-Available-blue?logo=google-chrome&logoColor=white)](https://chromewebstore.google.com/detail/okjnafabngnahdppmbnmefofokpegccm)
@@ -6,7 +6,7 @@
 ![Version](https://img.shields.io/badge/version-1.6.3-blue)
 ![License](https://img.shields.io/badge/license-green)
 
-**Context-Carry** is a lightweight Chrome extension that helps you capture, clean, organize, and send text or code between AI tools — no messy formatting, no painful copy-paste.
+**ContextDrone (Context-Carry)** is a lightweight Chrome extension that helps you capture, clean, organize, and send text or code between AI tools — no messy formatting, no painful copy-paste.
 
 ---
 
