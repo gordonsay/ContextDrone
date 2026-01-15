@@ -1,11 +1,11 @@
 ========================================================================
-Context-Carry Extension Source Code
+ContextDrone Extension Source Code
 ========================================================================
 
-Copyright (c) 2025 gordonsay (DogLab24)
+Copyright (c) 2025-2026 gordonsay (DogLab24)
 All rights reserved.
 
-The software known as "Context-Carry", including but not limited to 
+The software known as "ContextDrone", including but not limited to 
 background.js, content.js, popup logics, and the server-side code, 
 is the proprietary information of gordonsay (DogLab24).
 
@@ -53,4 +53,3 @@ Copyright (c) 2017 Erik Koopmans
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software...
-(The standard MIT License text)

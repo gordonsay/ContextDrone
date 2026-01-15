@@ -1,8 +1,8 @@
-(function () {
+(async function () {
     /* =========================================
        0. Global State Management & Guard
     ========================================= */
-    const IS_STORE_BUILD = false;
+    const IS_STORE_BUILD = true;
 
     if (window._cc_is_injected) return;
     window._cc_is_injected = true;
@@ -19,12 +19,44 @@
         userLang = 'ko';
     }
 
-    const CONFIG = window.CC_CONFIG || { PLATFORMS: [], APP_CONFIG: {}, MODEL_PRESETS: {} };
-    const { PLATFORMS, APP_CONFIG, MODEL_PRESETS } = CONFIG;
+    const timestamp = new Date().getTime();
+    const LLM_CONFIG_URL = `https://gist.githubusercontent.com/gordonsay/aaf67705332b0e6d522424fbbf1f5ce4/raw/llm_config.json`;
+
+    async function getRuntimeConfig() {
+        const localConfig = window.CC_CONFIG || { PLATFORMS: [], APP_CONFIG: {}, MODEL_PRESETS: {}, API_ENDPOINTS: {} };
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+            const response = await fetch(LLM_CONFIG_URL, { signal: controller.signal });
+            clearTimeout(timeoutId);
+
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+
+            const remoteData = await response.json();
+            console.log('[ContextDrone] Remote config loaded:', remoteData.version);
+
+            return {
+                ...localConfig,
+                APP_CONFIG: remoteData.APP_CONFIG || localConfig.APP_CONFIG,
+                MODEL_PRESETS: remoteData.MODEL_PRESETS || localConfig.MODEL_PRESETS,
+                PLATFORMS: remoteData.PLATFORMS || localConfig.PLATFORMS,
+                API_ENDPOINTS: remoteData.API_ENDPOINTS || localConfig.API_ENDPOINTS || {}
+            };
+
+        } catch (error) {
+            console.warn('[ContextDrone] Remote config fetch failed, using local backup.', error);
+            return localConfig;
+        }
+    }
+
+    const CONFIG = await getRuntimeConfig();
+    const { PLATFORMS, APP_CONFIG, MODEL_PRESETS, API_ENDPOINTS } = CONFIG;
 
     const state = {
         active: false,
-        uiMode: 'robot',
+        uiMode: 'standard',
         interval: null,
         lang: userLang,
         langData: (typeof CC_LANG_DATA !== 'undefined') ? CC_LANG_DATA : {},
@@ -47,7 +79,9 @@
         basketListeners: new Set(),
         viewMode: 'basket',
         activeFolderId: 'inbox',
-        maxFolders: 5
+        includeSource: true,
+        basketSelectionState: {},
+        contentPanelTab: 'basket'
     };
 
     let basket = [];
@@ -59,6 +93,21 @@
         pins: [],
         overlay: null,
         onChange: null,
+        _onChangeCallbacks: [],
+
+        registerOnChange(callback) {
+            if (callback && typeof callback === 'function') {
+                this._onChangeCallbacks = this._onChangeCallbacks.filter(cb => cb !== callback);
+                this._onChangeCallbacks.push(callback);
+            }
+        },
+
+        _notifyChange() {
+            if (this.onChange) this.onChange();
+            this._onChangeCallbacks.forEach(cb => {
+                try { cb(); } catch (e) { console.warn('[pinManager] callback error:', e); }
+            });
+        },
 
         init() {
             if (this.overlay) return;
@@ -73,34 +122,36 @@
         },
 
         addPin(targetEl, offsetX = 0, offsetY = 0) {
-            this.init();
+            attemptFeatureUsage('pin', () => {
+                this.init();
 
-            let text = (targetEl.innerText || "").substring(0, 30).replace(/[\n\r]/g, '');
-            if (!text) text = "Location " + (this.pins.length + 1);
-            else text += "...";
+                let text = (targetEl.innerText || "").substring(0, 30).replace(/[\n\r]/g, '');
+                if (!text) text = "Location " + (this.pins.length + 1);
+                else text += "...";
 
-            const pin = document.createElement('div');
-            pin.className = 'cc-chat-pin-marker';
-            pin.innerHTML = '📌';
-            pin.title = "Click to remove";
-            pin.style.pointerEvents = 'auto';
-            pin.style.position = 'absolute';
-            pin.style.cursor = 'pointer';
-            pin.style.filter = 'drop-shadow(0 2px 2px rgba(0,0,0,0.5))';
+                const pin = document.createElement('div');
+                pin.className = 'cc-chat-pin-marker';
+                pin.innerHTML = '📌';
+                pin.title = "Click to remove";
+                pin.style.pointerEvents = 'auto';
+                pin.style.position = 'absolute';
+                pin.style.cursor = 'pointer';
+                pin.style.filter = 'drop-shadow(0 2px 2px rgba(0,0,0,0.5))';
 
-            const id = Date.now() + Math.random();
+                const id = Date.now() + Math.random();
 
-            pin.onclick = (e) => {
-                e.stopPropagation();
-                this.removePin(id);
-            };
+                pin.onclick = (e) => {
+                    e.stopPropagation();
+                    this.removePin(id);
+                };
 
-            this.overlay.appendChild(pin);
+                this.overlay.appendChild(pin);
 
-            this.pins.push({ id, pinEl: pin, targetEl, text, offsetX, offsetY });
+                this.pins.push({ id, pinEl: pin, targetEl, text, offsetX, offsetY });
 
-            this.updatePositions();
-            if (this.onChange) this.onChange();
+                this.updatePositions();
+                this._notifyChange();
+            }, this.pins.length);
         },
 
         removePin(id) {
@@ -111,7 +162,7 @@
                 setTimeout(() => pinEl.remove(), 200);
                 this.pins.splice(index, 1);
 
-                if (this.onChange) this.onChange();
+                this._notifyChange();
             }
         },
 
@@ -146,7 +197,7 @@
                 return true;
             });
 
-            if (changed && this.onChange) this.onChange();
+            if (changed) this._notifyChange();
 
             this.pins.forEach(p => {
                 const rect = p.targetEl.getBoundingClientRect();
@@ -303,6 +354,469 @@
         });
     }
 
+
+    /* =========================================
+       0-1. Usage Limits & Tiers
+    ========================================= */
+    const GROWTH_CONFIG = {
+        LIMITS: {
+            qrcode: { tier1: 5, tier2: 15 },
+            pin: { tier1: 5, tier2: 12 },
+            context: { tier1: 10, tier2: 40 },
+            workflow: { tier1: 10, tier2: 80 }
+        },
+        BONUS: {
+            qrcode: 10,
+            pin: 8,
+            workflow: 100,
+            context: 20
+        },
+        TOAST_THROTTLE_MS: 60 * 1000
+    };
+
+    async function getGrowthStats() {
+        return new Promise((resolve) => {
+            chrome.storage.local.get(['cc_growth_stats_v2'], (result) => {
+                const defaultStats = {
+                    counts: { qrcode: 0, pin: 0, context: 0, workflow: 0 },
+                    unlocked: { qrcode: false, pin: false, context: false, workflow: false },
+                    bonusGranted: { qrcode: false, pin: false, context: false, workflow: false },
+                    tier2Pref: { qrcode: null, pin: null, context: null, workflow: null },
+                    lastLimitToastAt: { qrcode: 0, pin: 0, context: 0, workflow: 0 }
+                };
+                resolve(result.cc_growth_stats_v2 || defaultStats);
+            });
+        });
+    }
+
+    function saveGrowthStats(stats) {
+        chrome.storage.local.set({ 'cc_growth_stats_v2': stats });
+    }
+
+    function shouldThrottleLimitToast(stats, feature) {
+        const last = (stats.lastLimitToastAt && stats.lastLimitToastAt[feature]) || 0;
+        return (Date.now() - last) < GROWTH_CONFIG.TOAST_THROTTLE_MS;
+    }
+
+    function markLimitToast(stats, feature) {
+        if (!stats.lastLimitToastAt) stats.lastLimitToastAt = {};
+        stats.lastLimitToastAt[feature] = Date.now();
+        saveGrowthStats(stats);
+    }
+
+    function getEffectiveTier2Limit(stats, feature, baseTier2) {
+        const bonus = (stats.bonusGranted && stats.bonusGranted[feature]) ? (GROWTH_CONFIG.BONUS[feature] || 0) : 0;
+        return baseTier2 + bonus;
+    }
+
+    function notifySuperHeavyUser(feature, stats) {
+        const payload = {
+            event: 'beta_superheavy_user_limit_hit',
+            feature,
+            tier2_pref: (stats.tier2Pref && stats.tier2Pref[feature]) || null,
+            timestamp: Date.now(),
+            lang: (typeof state !== 'undefined' && state.lang) ? state.lang : 'en'
+        };
+
+        fetch('https://qrcode.doglab24.org/api/feedback', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-secret-token': 'dogegg-qrcode-generator'
+            },
+            body: JSON.stringify(payload)
+        }).catch(() => { });
+    }
+
+    async function attemptFeatureUsage(feature, onSuccess, currentCapacity = null) {
+        const t = LANG_DATA[state.lang] || LANG_DATA['en'];
+
+        const stats = await getGrowthStats();
+        const limits = GROWTH_CONFIG.LIMITS[feature];
+        const isCapacityMode = (currentCapacity !== null);
+
+        const valueToCheck = isCapacityMode
+            ? currentCapacity
+            : (stats.counts[feature] || 0);
+
+        const isUnlocked = !!(stats.unlocked && stats.unlocked[feature]);
+        const baseTier2 = limits.tier2;
+        const effectiveTier2 = getEffectiveTier2Limit(stats, feature, baseTier2);
+        const hasBonus = !!(stats.bonusGranted && stats.bonusGranted[feature]);
+
+        if (valueToCheck >= baseTier2 && !hasBonus) {
+            showGrowthTier2BetaModal(feature, (payload) => {
+                if (!stats.bonusGranted) stats.bonusGranted = {};
+                stats.bonusGranted[feature] = true;
+
+                if (!stats.tier2Pref) stats.tier2Pref = {};
+                stats.tier2Pref[feature] = payload.topFeature || null;
+
+                if (!isCapacityMode) {
+                    stats.counts[feature] = (stats.counts[feature] || 0) + 1;
+                }
+
+                saveGrowthStats(stats);
+                showToast(t.gl_tier2_bonus_granted || `Thanks! Bonus unlocked for ${feature}. 🎉`);
+
+                onSuccess(stats, 3);
+            });
+            return;
+        }
+
+        if (valueToCheck >= effectiveTier2) {
+            notifySuperHeavyUser(feature, stats);
+
+            if (!shouldThrottleLimitToast(stats, feature)) {
+                showToast(t.gl_limit_thanks || `Reached beta limit ${feature}. Thanks 🙏`);
+                markLimitToast(stats, feature);
+            }
+            return;
+        }
+
+        if (valueToCheck >= limits.tier1 && !isUnlocked) {
+            showGrowthFeedbackModal(feature, () => {
+                if (!stats.unlocked) stats.unlocked = {};
+                stats.unlocked[feature] = true;
+
+                if (!isCapacityMode) {
+                    stats.counts[feature] = (stats.counts[feature] || 0) + 1;
+                }
+
+                saveGrowthStats(stats);
+                showToast(t.gl_tier_unlocked);
+
+                onSuccess(stats, 2);
+            });
+            return;
+        }
+
+        if (!isCapacityMode) {
+            stats.counts[feature] = (stats.counts[feature] || 0) + 1;
+            saveGrowthStats(stats);
+        }
+
+        const currentTier = (valueToCheck >= limits.tier1) ? 2 : 1;
+        onSuccess(stats, currentTier);
+    }
+
+    function showGrowthTier2BetaModal(featureName, onSubmit) {
+        const t = LANG_DATA[state.lang] || LANG_DATA['en'];
+
+        const overlay = document.createElement('div');
+        overlay.id = 'cc-growth-overlay-tier2';
+        overlay.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.6); z-index: 2147483661;
+            backdrop-filter: blur(3px);
+            display: flex; justify-content: center; align-items: center;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        `;
+
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            background: #fff; width: 440px; max-height: 90vh; overflow-y: auto;
+            padding: 22px; border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3); color: #333; text-align: left;
+        `;
+
+        const options = t.gl_tier2_options || [
+            { key: 'export', label: '資料匯出' },
+            { key: 'collect', label: '資料收集' },
+            { key: 'workflow', label: '節點工作流模式' },
+            { key: 'pin_jump', label: 'pin針跳轉功能' },
+            { key: 'notes', label: '轉移到筆記軟體' },
+            { key: 'sync', label: '跨裝置同步共享內容' }
+        ];
+
+        modal.innerHTML = `
+            <style>
+            .cc-form-group { margin-bottom: 14px; }
+            .cc-label-title { font-size: 13px; font-weight: 700; display:block; margin-bottom: 8px; color:#444; }
+            .cc-input { width:100%; padding:10px; border:1px solid #ddd; border-radius:6px; box-sizing:border-box; font-size:13px; }
+            .cc-input:focus { border-color:#00d2ff; outline:none; }
+            .cc-radio-item { display:flex; align-items:center; gap:8px; margin-bottom:8px; font-size:13px; cursor:pointer; color:#555; }
+            .cc-radio-item input { accent-color:#00d2ff; }
+            .cc-hint { font-size: 12px; color:#777; line-height:1.4; }
+            .cc-error { border:1px solid #ff3b30 !important; }
+            .cc-btn { padding:10px 18px; border:none; border-radius:6px; cursor:pointer; font-weight:700; font-size:13px; }
+            .cc-btn-primary { background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%); color:#fff; }
+            .cc-btn-ghost { background:none; color:#888; }
+            </style>
+
+            <h3 style="margin:0 0 8px 0;">${t.gl_tier2_title || '你已達 Beta 上限'}</h3>
+            <p class="cc-hint" style="margin:0 0 14px 0;">
+            ${t.gl_tier2_msg || `目前是 Beta 測試版，${featureName} 暫時有使用上限。填 30 秒問卷，我們會破例給你一次性加量。`}
+            </p>
+
+            <div class="cc-form-group">
+            <label class="cc-label-title">${t.gl_tier2_email || 'Email（必填）'} <span style="color:red">*</span></label>
+            <input id="t2-email" type="email" class="cc-input" placeholder="${t.gl_ph_email || 'name@example.com'}">
+            <div class="cc-hint" style="margin-top:6px;">${t.gl_tier2_email_hint || '僅用於 Beta 通知與上限調整。'}</div>
+            </div>
+
+            <div class="cc-form-group" id="t2-pref-group">
+            <label class="cc-label-title">${t.gl_tier2_fav || '你最期待我們先做哪個功能？（必選）'} <span style="color:red">*</span></label>
+            ${options.map(o => `
+                <label class="cc-radio-item">
+                <input type="radio" name="t2-pref" value="${o.key}">
+                <span>${o.label}</span>
+                </label>
+            `).join('')}
+            </div>
+
+            <div class="cc-form-group">
+            <label class="cc-label-title">${t.gl_tier2_reason || '原因（可不填）'}</label>
+            <textarea id="t2-reason" rows="2" class="cc-input" placeholder="${t.gl_tier2_reason_ph || '例如：我想把摘要直接匯出到 Obsidian 做專案筆記…'}"></textarea>
+            </div>
+
+            <div class="cc-form-group">
+            <label class="cc-label-title">${t.gl_tier2_other || '其他意見（可不填）'}</label>
+            <textarea id="t2-other" rows="2" class="cc-input" placeholder="${t.gl_ph_comment || ''}"></textarea>
+            </div>
+
+            <div style="display:flex; justify-content:flex-end; gap:10px; border-top:1px solid #eee; padding-top:14px;">
+            <button id="t2-cancel" class="cc-btn cc-btn-ghost">${t.gl_btn_later || 'Later'}</button>
+            <button id="t2-submit" class="cc-btn cc-btn-primary">${t.gl_tier2_submit || '送出並獲得加量'}</button>
+            </div>
+        `;
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        const btnCancel = modal.querySelector('#t2-cancel');
+        const btnSubmit = modal.querySelector('#t2-submit');
+        const emailEl = modal.querySelector('#t2-email');
+        const prefGroup = modal.querySelector('#t2-pref-group');
+
+        btnCancel.onclick = () => overlay.remove();
+
+        btnSubmit.onclick = () => {
+            const email = (emailEl.value || '').trim();
+            const pref = modal.querySelector('input[name="t2-pref"]:checked');
+
+            let ok = true;
+            emailEl.classList.remove('cc-error');
+            prefGroup.classList.remove('cc-error');
+
+            if (!email) { emailEl.classList.add('cc-error'); ok = false; }
+            if (!pref) { prefGroup.classList.add('cc-error'); ok = false; }
+
+            if (!ok) return;
+
+            btnSubmit.innerText = "Processing...";
+            btnSubmit.disabled = true;
+            btnSubmit.style.opacity = "0.7";
+
+            const payload = {
+                event: 'growth_tier2_beta_survey',
+                feature: featureName,
+                email,
+                topFeature: pref.value,
+                reason: (modal.querySelector('#t2-reason').value || '').trim(),
+                other: (modal.querySelector('#t2-other').value || '').trim(),
+                timestamp: Date.now(),
+                lang: (typeof state !== 'undefined' && state.lang) ? state.lang : 'en',
+                bonus: GROWTH_CONFIG.BONUS[featureName] || 0
+            };
+
+            fetch('https://qrcode.doglab24.org/api/feedback', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-secret-token': 'dogegg-qrcode-generator'
+                },
+                body: JSON.stringify(payload)
+            })
+                .catch(() => { })
+                .finally(() => {
+                    btnSubmit.innerText = t.gl_btn_sent || 'Sent';
+                    btnSubmit.style.background = "#4CAF50";
+                    setTimeout(() => {
+                        overlay.remove();
+                        if (onSubmit) onSubmit(payload);
+                    }, 500);
+                });
+        };
+    }
+
+    function showGrowthFeedbackModal(featureName, onSubmit, customEventType = null) {
+        const t = LANG_DATA[state.lang] || LANG_DATA['en'];
+        const overlay = document.createElement('div');
+        overlay.id = 'cc-growth-overlay';
+        overlay.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        background: rgba(0,0,0,0.6); z-index: 2147483661;
+        backdrop-filter: blur(3px);
+        display: flex; justify-content: center; align-items: center;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    `;
+
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+        background: #fff; width: 400px; max-height: 90vh; overflow-y: auto;
+        padding: 25px; border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3); position: relative;
+        animation: cc-fade-in 0.2s ease-out; color: #333; text-align: left;
+    `;
+
+        const isLimitRequest = !!customEventType;
+        const title = isLimitRequest ? t.gl_limit_title : t.gl_feedback_title;
+
+        const rawMsg = isLimitRequest ? t.gl_limit_msg : t.gl_feedback_msg;
+        const msg = rawMsg.replace('{feature}', featureName);
+
+        const btnText = isLimitRequest ? t.gl_btn_req_unlimit : t.gl_btn_upgrade;
+
+        const roles = t.gl_roles;
+
+        const sourcesDict = t.gl_sources;
+        const sources = [
+            { label: sourcesDict.store, val: "chrome_store" },
+            { label: sourcesDict.official, val: "official_site", link: "https://contextdrone.com" },
+            { label: sourcesDict.referral, val: "referral" },
+            { label: sourcesDict.youtube, val: "youtube" },
+            { label: sourcesDict.other, val: "other", isOther: true }
+        ];
+
+        modal.innerHTML = `
+        <style>
+            @keyframes cc-fade-in { from {opacity:0; transform:scale(0.95);} to {opacity:1; transform:scale(1);} }
+            .cc-form-group { margin-bottom: 15px; }
+            .cc-label-title { font-size: 13px; font-weight: bold; display: block; margin-bottom: 8px; color: #444; }
+            .cc-radio-item, .cc-check-item { display: flex; align-items: center; margin-bottom: 6px; font-size: 13px; cursor: pointer; color: #555; }
+            .cc-radio-item input, .cc-check-item input { margin-right: 8px; accent-color: #00d2ff; }
+            .cc-input-text { 
+                width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; 
+                box-sizing: border-box; font-size: 13px; color: #333 !important; background: #fff !important; 
+            }
+            .cc-input-text:focus { border-color: #00d2ff; outline: none; }
+            a.cc-link { color: #00d2ff; text-decoration: none; font-weight: bold; }
+            a.cc-link:hover { text-decoration: underline; }
+            #cc-other-source-wrap { display: none; margin-top: 5px; margin-left: 24px; }
+            .cc-error-shake { animation: cc-shake 0.4s; border: 1px solid red; padding: 5px; border-radius: 4px; }
+            @keyframes cc-shake { 0% {transform: translateX(0);} 25% {transform: translateX(-5px);} 50% {transform: translateX(5px);} 75% {transform: translateX(-5px);} 100% {transform: translateX(0);} }
+        </style>
+
+        <h3 style="margin: 0 0 10px 0; color: #333;">${title}</h3>
+        <p style="font-size: 13px; color: #666; line-height: 1.5; margin-bottom: 20px;">${msg}</p>
+        
+        <div class="cc-form-group" id="group-role">
+            <label class="cc-label-title">${t.gl_lbl_role} <span style="color:red">*</span></label>
+            ${roles.map((r, i) => `
+                <label class="cc-radio-item">
+                    <input type="radio" name="cc_role" value="${r}"> ${r}
+                </label>
+            `).join('')}
+        </div>
+
+        <div class="cc-form-group">
+            <label class="cc-label-title">${t.gl_lbl_source}</label>
+            ${sources.map((s, i) => `
+                <label class="cc-check-item">
+                    <input type="checkbox" name="cc_source" value="${s.val}" ${s.isOther ? 'id="cc-check-other"' : ''}>
+                    ${s.link ? `<a href="${s.link}" target="_blank" class="cc-link" onclick="event.stopPropagation()">${s.label} ↗</a>` : s.label}
+                </label>
+            `).join('')}
+            <div id="cc-other-source-wrap">
+                <input type="text" id="cc-source-other-input" class="cc-input-text" placeholder="${t.gl_ph_specify}">
+            </div>
+        </div>
+
+        <div class="cc-form-group">
+            <label class="cc-label-title">${t.gl_lbl_email}</label>
+            <input type="email" id="gf-email" class="cc-input-text" placeholder="${t.gl_ph_email}">
+        </div>
+
+        <div class="cc-form-group">
+            <label class="cc-label-title">${t.gl_lbl_comment}</label>
+            <textarea id="gf-comment" rows="2" class="cc-input-text" placeholder="${t.gl_ph_comment}"></textarea>
+        </div>
+
+        <div style="text-align:right; margin-top:20px; border-top: 1px solid #eee; padding-top: 15px;">
+            <button id="gf-cancel" style="padding:8px 15px; background:none; border:none; color:#888; cursor:pointer; margin-right:10px; font-size:13px;">${t.gl_btn_later}</button>
+            <button id="gf-submit" style="padding:10px 20px; background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%); color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:bold; font-size:13px; box-shadow: 0 4px 10px rgba(0, 210, 255, 0.2);">${btnText}</button>
+        </div>
+    `;
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        const btnSubmit = modal.querySelector('#gf-submit');
+        const btnCancel = modal.querySelector('#gf-cancel');
+        const checkOther = modal.querySelector('#cc-check-other');
+        const otherInputDiv = modal.querySelector('#cc-other-source-wrap');
+        const roleGroup = modal.querySelector('#group-role');
+
+        checkOther.onchange = (e) => {
+            otherInputDiv.style.display = e.target.checked ? 'block' : 'none';
+            if (e.target.checked) {
+                setTimeout(() => modal.querySelector('#cc-source-other-input').focus(), 100);
+            }
+        };
+
+        btnCancel.onclick = () => overlay.remove();
+
+        btnSubmit.onclick = () => {
+            const selectedRole = modal.querySelector('input[name="cc_role"]:checked');
+            if (!selectedRole) {
+                roleGroup.classList.remove('cc-error-shake');
+                void roleGroup.offsetWidth;
+                roleGroup.classList.add('cc-error-shake');
+                return;
+            }
+
+            const sourceCheckboxes = modal.querySelectorAll('input[name="cc_source"]:checked');
+            let selectedSources = Array.from(sourceCheckboxes).map(cb => cb.value);
+
+            if (checkOther.checked) {
+                const otherText = modal.querySelector('#cc-source-other-input').value.trim();
+                if (otherText) {
+                    selectedSources = selectedSources.filter(s => s !== 'other');
+                    selectedSources.push(`Other: ${otherText}`);
+                }
+            }
+
+            const email = modal.querySelector('#gf-email').value.trim();
+            const comment = modal.querySelector('#gf-comment').value.trim();
+
+            btnSubmit.innerText = "Processing...";
+            btnSubmit.disabled = true;
+            btnSubmit.style.opacity = "0.7";
+
+            const payload = {
+                event: customEventType || 'growth_unlock_tier2_survey',
+                feature: featureName,
+                role: selectedRole.value,
+                sources: selectedSources,
+                email: email,
+                comment: comment,
+                timestamp: Date.now(),
+                lang: (typeof state !== 'undefined' && state.lang) ? state.lang : 'en'
+            };
+
+            fetch('https://qrcode.doglab24.org/api/feedback', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-secret-token': 'dogegg-qrcode-generator'
+                },
+                body: JSON.stringify(payload)
+            })
+                .then(() => console.log("Survey sent"))
+                .catch(err => console.error("Survey err", err))
+                .finally(() => {
+                    btnSubmit.innerText = t.gl_btn_sent;
+                    btnSubmit.style.background = "#4CAF50";
+
+                    setTimeout(() => {
+                        overlay.remove();
+                        if (onSubmit) onSubmit(payload);
+                    }, 800);
+                });
+        };
+    }
+
     /* =========================================
        1. Settings
     ========================================= */
@@ -358,7 +872,7 @@
 
     function injectStyles() {
         if (typeof CC_STYLES === 'undefined') {
-            console.error('Context-Carry: CSS assets (CC_STYLES) not loaded.');
+            console.error('ContextDrone: CSS assets (CC_STYLES) not loaded.');
             return;
         }
 
@@ -373,7 +887,7 @@
 
             (document.head || document.documentElement).appendChild(style);
         } catch (e) {
-            console.error("Context-Carry: Style injection failed:", e);
+            console.error("ContextDrone: Style injection failed:", e);
         }
     }
 
@@ -418,6 +932,8 @@
     else if (host.includes('gemini.google.com')) config = APP_CONFIG['gemini.google.com'];
     else if (host.includes('claude')) config = APP_CONFIG['claude.ai'];
     else if (host.includes('x.com') || host.includes('grok.com')) config = APP_CONFIG['grok'];
+    else if (host.includes('deepseek')) config = APP_CONFIG['chat.deepseek.com'];
+    else if (host.includes('perplexity')) config = APP_CONFIG['www.perplexity.ai'];
     state.config = config;
 
     function getCustomPrompts(cb) {
@@ -683,14 +1199,11 @@
         });
         clone.querySelectorAll('li').forEach(li => li.replaceWith(document.createTextNode(`\n- ${li.innerText}`)));
         clone.querySelectorAll('br').forEach(br => br.replaceWith(document.createTextNode('\n')));
-        clone.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, pre, blockquote').forEach(el => {
-            const last = el.lastChild;
-            if (!last || last.nodeType !== Node.TEXT_NODE || !last.nodeValue.endsWith('\n')) {
-                el.append(document.createTextNode('\n'));
-            }
-        });
 
-        return clone.innerText.trim();
+        let text = clone.innerText;
+        text = text.replace(/\n{3,}/g, '\n\n');
+
+        return text.trim();
     }
 
     function estimateTokens(text) {
@@ -744,10 +1257,8 @@
     }
 
     /* =========================================
-       3. Main Functions: Open / Close / Toggle
+       3. Main Functions
     ========================================= */
-    const originalOpenInterface = openInterface;
-
     function openInterface() {
         if (state.active) return;
         state.active = true;
@@ -780,7 +1291,7 @@
             try {
                 injectStyles();
             } catch (e) {
-                console.error("Context-Carry: Critical error in injectStyles", e);
+                console.error("ContextDrone: Critical error in injectStyles", e);
             }
 
             try {
@@ -822,7 +1333,7 @@
                     }
                 });
             } catch (e) {
-                console.error("Context-Carry: Error in post-panel logic", e);
+                console.error("ContextDrone: Error in post-panel logic", e);
             }
         });
     }
@@ -1056,6 +1567,8 @@
     let basketLabel, basketStatus, btnAddBasket, btnClearBasket, btnPasteBasket, basketPreviewList;
     let tooltip;
     let btnSummary, btnNewDoc;
+    let updateContentTabBadges;
+    let updateMechTabBadges;
 
     function createSysBtn(id, textKey, tooltipKey, promptKey, isCustom = false) {
         const t = LANG_DATA[state.lang];
@@ -1119,6 +1632,14 @@
             }
         }
 
+        const platformIcons = document.querySelectorAll('.cc-platform-icon');
+        platformIcons.forEach(img => {
+            const pid = img.dataset.pid;
+            if (pid) {
+                img.src = chrome.runtime.getURL(`images/${pid}_${newTheme}.png`);
+            }
+        });
+
         const robotThemeBtn = document.getElementById('mech-btn-theme');
         if (robotThemeBtn) {
             if (newTheme === 'light') robotThemeBtn.classList.add('active');
@@ -1141,9 +1662,9 @@
         }
     }
 
-
     function createPanel() {
         if (document.getElementById('cc-panel')) return;
+        state.contentPanelTab = state.contentPanelTab || 'basket';
         const curLang = state.lang;
         const t = LANG_DATA[curLang];
 
@@ -1357,7 +1878,15 @@
             if (p.id === 'claude') btn.classList.add('p-claude');
             if (p.id === 'gemini') btn.classList.add('p-gemini');
             if (p.id === 'grok') btn.classList.add('p-grok');
-            btn.innerHTML = `<i>${p.icon}</i> ${p.name}`;
+            if (p.id === 'deepseek') btn.classList.add('p-deepseek');
+            if (p.id === 'perplexity') btn.classList.add('p-perplexity');
+            const iconUrl = chrome.runtime.getURL(`images/${p.id}_${state.theme}.png`);
+            btn.innerHTML = `
+                <img src="${iconUrl}" 
+                     class="cc-platform-icon" 
+                     data-pid="${p.id}" 
+                     style="width:16px; height:16px; vertical-align:middle; object-fit:contain;">
+            `;
             btn.title = t.tooltip_transfer_to.replace('{name}', p.name);
             btn.onclick = () => handleCrossTransfer(p);
             transferContainer.appendChild(btn);
@@ -1368,20 +1897,26 @@
 
         btnSelectAll = document.createElement('button');
         btnSelectAll.className = 'tool-btn';
-        btnSelectAll.textContent = t.btn_select_all;
+        btnSelectAll.id = 'cc-btn-select-all';
+        btnSelectAll.title = t.btn_select_all;
+        btnSelectAll.textContent = '✅';
         btnSelectAll.onclick = handleSelectAll;
 
         btnUnselectAll = document.createElement('button');
         btnUnselectAll.className = 'tool-btn';
-        btnUnselectAll.textContent = t.btn_unselect_all;
+        btnUnselectAll.id = 'cc-btn-unselect-all';
+        btnUnselectAll.title = t.btn_unselect_all;
+        btnUnselectAll.textContent = '⛔';
         btnUnselectAll.onclick = handleUnselectAll;
 
-        btnCopy = document.createElement('button');
-        btnCopy.className = 'tool-btn';
-        btnCopy.textContent = t.btn_copy;
-        btnCopy.onclick = handleCopyOnly;
+        const btnPasteMain = document.createElement('button');
+        btnPasteMain.className = 'tool-btn';
+        btnPasteMain.id = 'cc-btn-paste-main';
+        btnPasteMain.title = t.btn_paste_basket;
+        btnPasteMain.textContent = '🪄';
+        btnPasteMain.onclick = handlePasteBasket;
 
-        toolsRow.append(btnSelectAll, btnUnselectAll, btnCopy);
+        toolsRow.append(btnSelectAll, btnUnselectAll, btnPasteMain);
         const aiToolsRow = document.createElement('div');
         aiToolsRow.className = 'cc-tools';
         aiToolsRow.style.marginTop = '4px';
@@ -1389,6 +1924,8 @@
         if (shouldShowAI()) {
             btnSummary = document.createElement('button');
             btnSummary.className = 'tool-btn btn-ai-low';
+            btnSummary.id = 'cc-btn-summary';
+            btnSummary.title = t.btn_summary;
             btnSummary.textContent = t.btn_summary;
             btnSummary.onclick = () => {
                 if (state.streamingModal && state.streamingModal.isMinimized) {
@@ -1431,6 +1968,34 @@
             gap: '4px'
         });
 
+        const btnNone = createSysBtn('sys-btn-none', 'None', 'No Prompt', null);
+        btnNone.innerText = '🛑';
+        btnNone.onclick = (e) => {
+            e.stopPropagation();
+            if (prefixInput) {
+                prefixInput.value = "";
+                calculateTotalTokens();
+                flashInput(prefixInput);
+            }
+        };
+
+        const btnSourceToggle = createSysBtn('sys-btn-source-toggle', 'Src', 'Toggle Source Info', null);
+        const updateSourceBtnStyle = () => {
+            btnSourceToggle.innerText = state.includeSource ? '🔗' : '⛓️‍💥';
+            btnSourceToggle.style.opacity = state.includeSource ? '1' : '0.5';
+            btnSourceToggle.title = state.includeSource ? (t.btn_source_on || "Source: ON") : (t.btn_source_off || "Source: OFF");
+        };
+        updateSourceBtnStyle();
+
+        btnSourceToggle.onclick = (e) => {
+            e.stopPropagation();
+            state.includeSource = !state.includeSource;
+            updateSourceBtnStyle();
+            const msg = state.includeSource ? "Context Source: Included ✅" : "Context Source: Disabled 🚫";
+            showToast(msg);
+            updateBasketUI();
+        };
+
         const btnSum = createSysBtn('sys-btn-sum', 'sys_btn_summary', 'sys_tooltip_summary', 'sys_prompt_summary');
         const btnTrans = createSysBtn('sys-btn-trans', 'sys_btn_translate', 'sys_tooltip_translate', 'sys_prompt_translate');
         const btnExp = createSysBtn('sys-btn-exp', 'sys_btn_explain', 'sys_tooltip_explain', 'sys_prompt_explain');
@@ -1447,7 +2012,7 @@
             handleLoadPromptClick(btnLoad);
         };
 
-        prefixToolbar.append(btnSum, btnTrans, btnExp, btnSave, btnLoad);
+        prefixToolbar.append(btnNone, btnSum, btnTrans, btnExp, btnSave, btnLoad);
         prefixHeader.append(prefixLabel, prefixToolbar);
 
         prefixInput = document.createElement('textarea');
@@ -1456,45 +2021,313 @@
         prefixInput.value = t.default_prompt;
         prefixInput.placeholder = t.placeholder;
         prefixInput.addEventListener('input', debounce(calculateTotalTokens, 300));
+        const contentTabBar = document.createElement('div');
+        contentTabBar.id = 'cc-content-tab-bar';
+        Object.assign(contentTabBar.style, {
+            display: 'flex',
+            gap: '4px',
+            marginTop: '8px',
+            marginBottom: '4px'
+        });
+
+        const createContentTab = (id, label, icon, isDefault = false) => {
+            const tab = document.createElement('button');
+            tab.id = id;
+            tab.className = 'cc-content-tab' + (isDefault ? ' active' : '');
+            tab.innerHTML = `${icon} <span class="tab-label">${label}</span><span class="tab-badge" style="display:none;margin-left:4px;background:#ff5252;color:#fff;padding:0 5px;border-radius:10px;font-size:9px;"></span>`;
+            Object.assign(tab.style, {
+                flex: '1',
+                padding: '6px 8px',
+                border: 'none',
+                borderRadius: '6px 6px 0 0',
+                cursor: 'pointer',
+                fontSize: '11px',
+                fontWeight: '600',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '4px',
+                transition: 'all 0.2s',
+                background: isDefault ? 'var(--cc-bg-card, #333)' : 'transparent',
+                color: isDefault ? 'var(--cc-primary, #00d2ff)' : 'var(--cc-text-sub, #888)',
+                borderBottom: isDefault ? '2px solid var(--cc-primary, #00d2ff)' : '2px solid transparent'
+            });
+            return tab;
+        };
+
+        const tabBasket = createContentTab('cc-tab-basket', 'Basket', '📦', state.contentPanelTab === 'basket');
+        const tabPins = createContentTab('cc-tab-pins', 'Pins', '📍', state.contentPanelTab === 'pins');
+
+        const switchContentTab = (tabName) => {
+            state.contentPanelTab = tabName;
+            const isBasket = tabName === 'basket';
+
+            tabBasket.style.background = isBasket ? 'var(--cc-bg-card, #333)' : 'transparent';
+            tabBasket.style.color = isBasket ? 'var(--cc-primary, #00d2ff)' : 'var(--cc-text-sub, #888)';
+            tabBasket.style.borderBottom = isBasket ? '2px solid var(--cc-primary, #00d2ff)' : '2px solid transparent';
+            tabBasket.classList.toggle('active', isBasket);
+
+            tabPins.style.background = !isBasket ? 'var(--cc-bg-card, #333)' : 'transparent';
+            tabPins.style.color = !isBasket ? 'var(--cc-primary, #00d2ff)' : 'var(--cc-text-sub, #888)';
+            tabPins.style.borderBottom = !isBasket ? '2px solid var(--cc-primary, #00d2ff)' : '2px solid transparent';
+            tabPins.classList.toggle('active', !isBasket);
+
+            if (basketPreviewList) basketPreviewList.style.display = isBasket && state.isPreviewOpen ? 'block' : 'none';
+
+            if (isBasket && state.isPreviewOpen) {
+                renderBasketPreview(basket);
+            }
+
+            const pinPanel = document.getElementById('cc-std-pin-panel');
+            if (pinPanel) pinPanel.style.display = !isBasket ? 'block' : 'none';
+
+            const basketInfoEl = document.getElementById('cc-basket-info');
+            if (basketInfoEl) basketInfoEl.style.display = isBasket ? 'flex' : 'none';
+
+            const pinInfoEl = document.getElementById('cc-pin-info');
+            if (pinInfoEl) pinInfoEl.style.display = !isBasket ? 'flex' : 'none';
+        };
+
+        tabBasket.onclick = () => switchContentTab('basket');
+        tabPins.onclick = () => switchContentTab('pins');
+
+        contentTabBar.append(tabBasket, tabPins);
+
+        updateContentTabBadges = () => {
+            const basketBadge = tabBasket.querySelector('.tab-badge');
+            const pinBadge = tabPins.querySelector('.tab-badge');
+
+            if (basketBadge) {
+                const count = basket.length;
+                basketBadge.textContent = count;
+                basketBadge.style.display = count > 0 ? 'inline' : 'none';
+            }
+
+            if (pinBadge) {
+                const pinCount = pinManager.pins.length;
+                pinBadge.textContent = pinCount;
+                pinBadge.style.display = pinCount > 0 ? 'inline' : 'none';
+            }
+        };
+
+        const stdPinChangeCallback = () => {
+            updateContentTabBadges();
+            if (typeof renderStdPinPanel === 'function') renderStdPinPanel();
+        };
+        pinManager.registerOnChange(stdPinChangeCallback);
+        setTimeout(() => stdPinChangeCallback(), 0);
+
         const basketInfo = document.createElement('div');
         basketInfo.className = 'basket-info';
         basketInfo.id = 'cc-basket-info';
+
+        Object.assign(basketInfo.style, {
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '4px 2px'
+        });
 
         basketLabel = document.createElement('span');
         basketLabel.style.display = 'none';
         basketLabel.id = 'cc-basket-label';
         basketInfo.appendChild(basketLabel);
+
         basketStatus = document.createElement('span');
         basketStatus.textContent = t.basket_status_empty;
         basketStatus.style.cursor = 'pointer';
         basketStatus.id = 'cc-basket-status';
         basketStatus.onclick = toggleBasketPreview;
         basketInfo.appendChild(basketStatus);
+
+        const basketIcons = document.createElement('div');
+        Object.assign(basketIcons.style, {
+            display: 'flex',
+            gap: '8px',
+            alignItems: 'center'
+        });
+
+        btnAddBasket = document.createElement('span');
+        btnAddBasket.textContent = '🧺';
+        btnAddBasket.id = 'cc-btn-add-basket';
+        btnAddBasket.title = t.btn_add_basket;
+        btnAddBasket.style.cursor = 'pointer';
+        btnAddBasket.onclick = handleAddToBasket;
+
+        btnNewDoc = document.createElement('span');
+        btnNewDoc.textContent = '🖍️';
+        btnNewDoc.id = 'cc-btn-new-doc';
+        btnNewDoc.title = t.btn_new_doc;
+        btnNewDoc.style.cursor = 'pointer';
+        btnNewDoc.onclick = handleNewDoc;
+
         btnClearBasket = document.createElement('span');
-        btnClearBasket.textContent = t.btn_clear_basket;
+        btnClearBasket.textContent = '🗑️';
         btnClearBasket.style.cursor = 'pointer';
         btnClearBasket.style.color = 'var(--cc-primary)';
         btnClearBasket.id = 'cc-btn-clear-basket';
+        btnClearBasket.title = t.btn_clear_basket
         btnClearBasket.onclick = handleClearBasket;
-        basketInfo.appendChild(btnClearBasket);
 
-        const basketBtnRow = document.createElement('div');
-        basketBtnRow.className = 'cc-tools';
-        basketBtnRow.id = 'cc-basket-toolbar';
-        btnAddBasket = document.createElement('button');
-        btnAddBasket.className = 'tool-btn';
-        btnAddBasket.textContent = t.btn_add_basket;
-        btnAddBasket.onclick = handleAddToBasket;
-        btnPasteBasket = document.createElement('button');
-        btnPasteBasket.className = 'tool-btn';
-        btnPasteBasket.textContent = t.btn_paste_basket;
-        btnPasteBasket.onclick = handlePasteBasket;
-        basketBtnRow.append(btnAddBasket, btnPasteBasket);
-        btnNewDoc = document.createElement('button');
-        btnNewDoc.className = 'tool-btn';
-        btnNewDoc.textContent = t.btn_new_doc;
-        btnNewDoc.onclick = handleNewDoc;
-        basketBtnRow.append(btnNewDoc);
+        basketIcons.appendChild(btnSourceToggle);
+        basketIcons.appendChild(btnAddBasket);
+        basketIcons.appendChild(btnNewDoc);
+        basketIcons.appendChild(btnClearBasket);
+
+        basketInfo.appendChild(basketIcons);
+        const pinInfo = document.createElement('div');
+        pinInfo.id = 'cc-pin-info';
+        Object.assign(pinInfo.style, {
+            display: 'none',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '4px 2px'
+        });
+
+        const pinStatus = document.createElement('span');
+        pinStatus.id = 'cc-pin-status';
+        pinStatus.textContent = t.pin_status_empty || '📍 No pins yet';
+        pinStatus.style.fontSize = '11px';
+        pinStatus.style.color = '#888';
+        pinInfo.appendChild(pinStatus);
+
+        const pinActions = document.createElement('div');
+        Object.assign(pinActions.style, { display: 'flex', gap: '8px', alignItems: 'center' });
+
+        const btnClearPins = document.createElement('span');
+        btnClearPins.textContent = '🗑️';
+        btnClearPins.style.cursor = 'pointer';
+        btnClearPins.style.color = 'var(--cc-primary)';
+        btnClearPins.title = t.btn_clear_pins || 'Clear all pins';
+        btnClearPins.onclick = () => {
+            const t = LANG_DATA[state.lang];
+            if (pinManager.pins.length === 0) return;
+            showMainConfirmModal(
+                t.confirm_clear_pins || 'Clear all pins?',
+                t.confirm_clear_pins_msg || 'This will remove all pinned locations.',
+                () => {
+                    while (pinManager.pins.length > 0) {
+                        pinManager.removePin(pinManager.pins[0].id);
+                    }
+                    showToast(t.toast_pins_cleared || 'All pins cleared');
+                }
+            );
+        };
+        pinActions.appendChild(btnClearPins);
+        pinInfo.appendChild(pinActions);
+        const stdPinPanel = document.createElement('div');
+        stdPinPanel.id = 'cc-std-pin-panel';
+        Object.assign(stdPinPanel.style, {
+            display: 'none',
+            maxHeight: '200px',
+            overflowY: 'auto',
+            padding: '4px'
+        });
+
+        const renderStdPinPanel = () => {
+            const t = LANG_DATA[state.lang];
+            stdPinPanel.innerHTML = '';
+            const pins = pinManager.pins;
+            const pinStatusEl = document.getElementById('cc-pin-status');
+
+            if (pins.length === 0) {
+                if (pinStatusEl) {
+                    pinStatusEl.textContent = t.pin_status_empty || '📍 No pins yet';
+                    pinStatusEl.style.color = '#888';
+                }
+                stdPinPanel.innerHTML = `<div style="text-align:center;color:#666;font-size:11px;padding:20px;">
+                    ${t.pin_empty_hint || 'Drag 📌 from toolbar to pin locations on the page'}
+                </div>`;
+                updateContentTabBadges();
+                return;
+            }
+
+            if (pinStatusEl) {
+                pinStatusEl.textContent = (t.pin_status || '📍 {n} pins').replace('{n}', pins.length);
+                pinStatusEl.style.color = '#4CAF50';
+            }
+
+            pins.forEach((p, idx) => {
+                const row = document.createElement('div');
+                row.className = 'cc-pin-item';
+                Object.assign(row.style, {
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px',
+                    marginBottom: '4px',
+                    background: 'var(--cc-bg-card, #333)',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    border: '1px solid transparent'
+                });
+
+                row.onmouseenter = () => {
+                    row.style.borderColor = 'var(--cc-primary, #00d2ff)';
+                    row.style.background = 'var(--cc-bg-hover, #444)';
+                };
+                row.onmouseleave = () => {
+                    row.style.borderColor = 'transparent';
+                    row.style.background = 'var(--cc-bg-card, #333)';
+                };
+
+                const info = document.createElement('div');
+                info.style.flex = '1';
+                info.style.overflow = 'hidden';
+                info.innerHTML = `
+                    <div style="font-size:10px;color:#888;margin-bottom:2px;">📍 Pin ${idx + 1}</div>
+                    <div style="font-size:11px;color:#eee;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHTML(p.text)}</div>
+                `;
+
+                const actions = document.createElement('div');
+                actions.style.display = 'flex';
+                actions.style.gap = '4px';
+
+                const gotoBtn = document.createElement('button');
+                gotoBtn.innerHTML = '🎯';
+                gotoBtn.title = t.pin_goto || 'Jump to location';
+                Object.assign(gotoBtn.style, {
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    padding: '4px'
+                });
+                gotoBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    pinManager.scrollToPin(p.id);
+                };
+
+                const delBtn = document.createElement('button');
+                delBtn.innerHTML = '✕';
+                delBtn.title = t.pin_remove || 'Remove pin';
+                Object.assign(delBtn.style, {
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    color: '#888',
+                    padding: '4px'
+                });
+                delBtn.onmouseenter = () => delBtn.style.color = '#ff5252';
+                delBtn.onmouseout = () => delBtn.style.color = '#888';
+                delBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    pinManager.removePin(p.id);
+                };
+
+                actions.append(gotoBtn, delBtn);
+                row.append(info, actions);
+
+                row.onclick = () => pinManager.scrollToPin(p.id);
+
+                stdPinPanel.appendChild(row);
+            });
+
+            updateContentTabBadges();
+        };
+
         const basketContainer = document.createElement('div');
         Object.assign(basketContainer.style, {
             position: 'relative',
@@ -1521,7 +2354,7 @@
             borderRadius: '8px', zIndex: '10', backdropFilter: 'blur(2px)',
             pointerEvents: 'none'
         });
-        basketContainer.append(basketPreviewList, dropOverlay);
+        basketContainer.append(basketPreviewList, stdPinPanel, dropOverlay);
         const tokenDisplay = document.createElement('div');
         tokenDisplay.id = 'cc-token-display';
         tokenDisplay.style.fontSize = '11px';
@@ -1532,9 +2365,14 @@
         tokenDisplay.style.fontWeight = 'bold';
         tokenDisplay.textContent = `${t.token_est} 0`;
 
+        const extraActions = document.createElement('div');
+        extraActions.className = 'cc-tools';
+        extraActions.id = 'cc-extra-actions';
+
         btnPaint = document.createElement('button');
         btnPaint.className = 'tool-btn';
-        btnPaint.innerText = t.btn_paint;
+        btnPaint.innerText = '🖌️ ';
+        btnPaint.id = 'cc-btn-paint';
         btnPaint.title = t.paint_tooltip + t.hint_shortcut_paint;
         btnPaint.onclick = () => {
             toggleSelectionMode();
@@ -1542,16 +2380,55 @@
             if (p) p.style.opacity = '0.2';
         };
 
-        const extraActions = document.createElement('div');
-        extraActions.className = 'cc-tools';
-        extraActions.id = 'cc-extra-actions';
+        const btnPin = document.createElement('button');
+        btnPin.className = 'tool-btn';
+        btnPin.innerText = '📌';
+        btnPin.id = 'cc-btn-pin';
+        btnPin.title = t.btn_ping;
+        btnPin.draggable = true;
+        btnPin.addEventListener('dragstart', (e) => {
+            e.stopPropagation();
+            if (!panel.classList.contains('expanded')) {
+                panel.classList.add('expanded');
+            }
+            if (typeof switchContentTab === 'function') {
+                switchContentTab('pins');
+            }
+            e.dataTransfer.setData('application/cc-pin', 'true');
+            e.dataTransfer.effectAllowed = 'copy';
+            e.dataTransfer.setData('text/plain', 'ContextDrone Pin');
+            const dragIcon = document.createElement('div');
+            dragIcon.innerText = '📌';
+            Object.assign(dragIcon.style, { fontSize: '24px', position: 'absolute', top: '-9999px', left: '-9999px' });
+            document.body.appendChild(dragIcon);
+            e.dataTransfer.setDragImage(dragIcon, 12, 12);
+            requestAnimationFrame(() => dragIcon.remove());
+
+            document.body.classList.add('cc-pin-dragging');
+        });
+        btnPin.addEventListener('dragend', () => {
+            document.body.classList.remove('cc-pin-dragging');
+        });
+
+        const btnQr = document.createElement('button');
+        btnQr.className = 'tool-btn';
+        btnQr.innerText = '📱';
+        btnQr.id = 'cc-btn-qr';
+        btnQr.title = t.btn_qrcode;
+        btnQr.onclick = handleQrCodeAction;
+
         btnDl = document.createElement('button');
         btnDl.className = 'tool-btn';
-        btnDl.textContent = t.btn_dl;
+        btnDl.title = t.btn_dl;
+        btnDl.id = 'cc-btn-dl';
+        btnDl.textContent = '💾';
         btnDl.onclick = handleDownload;
+
         btnScan = document.createElement('button');
         btnScan.className = 'tool-btn';
-        btnScan.textContent = t.btn_scan;
+        btnScan.title = t.btn_scan;
+        btnScan.id = 'cc-btn-scan';
+        btnScan.textContent = '↻';
         btnScan.onclick = function () {
             performScan();
             this.textContent = LANG_DATA[state.lang].btn_scan_done;
@@ -1559,10 +2436,11 @@
                 this.textContent = LANG_DATA[state.lang].btn_scan;
             }, 1000);
         };
+
         const btnAiConfig = document.createElement('button');
         btnAiConfig.id = 'cc-btn-ai-config';
         btnAiConfig.className = 'tool-btn';
-        btnAiConfig.textContent = t.btn_quick_settings;
+        btnAiConfig.textContent = '🔓';
         btnAiConfig.title = t.ai_setting_tab;
         btnAiConfig.onclick = () => {
             const container = document.querySelector('.cc-ai-content');
@@ -1571,11 +2449,26 @@
                 toggleAiSettingsInDrawer(container);
             }
         };
-        extraActions.append(btnPaint, btnDl, btnScan, btnAiConfig);
-        drawer.append(prefixHeader, prefixInput, basketInfo, basketBtnRow, basketContainer, tokenDisplay, extraActions);
+
+        extraActions.append(btnPin, btnQr, btnPaint, btnDl, btnScan, btnAiConfig);
+        drawer.append(prefixHeader, prefixInput, contentTabBar, basketInfo, pinInfo, basketContainer, tokenDisplay);
+
+
+
         panel.append(header, msg, transferLabel, transferContainer, toolsRow, aiToolsRow, drawerToggle, drawer);
+
+        if (aiToolsRow && aiToolsRow.parentNode === panel) {
+            panel.insertBefore(extraActions, aiToolsRow);
+        } else {
+            panel.insertBefore(extraActions, drawerToggle);
+        }
         panel.addEventListener('dragover', (e) => {
             if (e.dataTransfer.types.includes('application/cc-sort')) return;
+            if (!e.dataTransfer.types.includes('application/cc-pin')) {
+                if (state.contentPanelTab !== 'basket' && typeof switchContentTab === 'function') {
+                    switchContentTab('basket');
+                }
+            }
             e.preventDefault();
             e.stopPropagation();
             e.dataTransfer.dropEffect = 'copy';
@@ -1604,50 +2497,59 @@
             e.preventDefault();
             e.stopPropagation();
 
-            const files = e.dataTransfer.files;
-            if (files && files.length > 0) {
-                Array.from(files).forEach((file) => {
-                    if (file.type && file.type.includes('text') || /\.md$/i.test(file.name) || /\.txt$/i.test(file.name)) {
-                        const reader = new FileReader();
-                        reader.onload = (ev) => {
-                            const content = (ev.target.result || '').trim();
-                            if (!content) return;
-                            basketOp({
-                                kind: 'ADD',
-                                item: {
-                                    text: content,
-                                    timestamp: Date.now(),
-                                    source: file.name + t.src_local
-                                }
-                            }, () => {
-                                showToast(LANG_DATA[state.lang].toast_basket_add || 'Added to basket');
-                                updateBasketUI();
-                                panel.classList.add('expanded');
-                                toggleBasketPreview(true);
-                            });
-                        };
-                        reader.readAsText(file);
-                    }
-                });
-                return;
-            }
+            const t = LANG_DATA[state.lang];
+            const droppedFiles = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
+            const droppedText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text');
+            const isManualScan = e.dataTransfer.types.includes('application/cc-scan-item');
 
-            const text = e.dataTransfer.getData('text');
-            if (text && text.trim().length > 0) {
-                basketOp({
-                    kind: 'ADD',
-                    item: {
-                        text: text.trim(),
-                        timestamp: Date.now(),
-                        source: window.location.hostname + t.src_drop
+            getBasket((currentBasket) => {
+                const currentCount = currentBasket ? currentBasket.length : 0;
+                attemptFeatureUsage('context', () => {
+
+                    if (droppedFiles.length > 0) {
+                        droppedFiles.forEach((file) => {
+                            if (file.type && file.type.includes('text') || /\.md$/i.test(file.name) || /\.txt$/i.test(file.name)) {
+                                const reader = new FileReader();
+                                reader.onload = (ev) => {
+                                    const content = (ev.target.result || '').trim();
+                                    if (!content) return;
+                                    basketOp({
+                                        kind: 'ADD',
+                                        item: {
+                                            text: content,
+                                            timestamp: Date.now(),
+                                            source: file.name + t.src_local
+                                        }
+                                    }, () => {
+                                        showToast(LANG_DATA[state.lang].toast_basket_add || 'Added to basket');
+                                        updateBasketUI();
+                                        panel.classList.add('expanded');
+                                        toggleBasketPreview(true);
+                                    });
+                                };
+                                reader.readAsText(file);
+                            }
+                        });
+                        return;
                     }
-                }, () => {
-                    showToast(LANG_DATA[state.lang].toast_basket_add || "已拖曳加入籃子 🧺");
-                    updateBasketUI();
-                    panel.classList.add('expanded');
-                    toggleBasketPreview(true);
-                });
-            }
+
+                    if (droppedText && droppedText.trim().length > 0) {
+                        basketOp({
+                            kind: 'ADD',
+                            item: {
+                                text: droppedText.trim(),
+                                timestamp: Date.now(),
+                                source: window.location.hostname + (isManualScan ? t.src_manual : t.src_drop)
+                            }
+                        }, () => {
+                            showToast(LANG_DATA[state.lang].toast_basket_add || "已拖曳加入籃子 🧺");
+                            updateBasketUI();
+                            panel.classList.add('expanded');
+                            toggleBasketPreview(true);
+                        });
+                    }
+                }, currentCount);
+            });
         });
 
         if (!state.config) {
@@ -1658,7 +2560,7 @@
             if (transferLabel) transferLabel.style.display = 'none';
             if (btnScan) btnScan.style.display = 'none';
             const curLang = state.lang;
-            title.textContent = curLang === 'zh' ? 'Context-Carry' : 'Context-Carry';
+            title.textContent = curLang === 'zh' ? 'ContextDrone' : 'ContextDrone';
         }
 
         if (state.theme === 'dark') {
@@ -1671,6 +2573,7 @@
 
     function createTransportDrone() {
         injectStyles();
+        fixGeminiDropZone();
         if (document.getElementById('cc-drone-fab')) return;
         const host = window.location.hostname;
         chrome.storage.local.get(['cc_disabled_domains'], (res) => {
@@ -1681,9 +2584,9 @@
             initDroneDOM();
         });
 
-        pinManager.onChange = () => {
+        pinManager.registerOnChange(() => {
             if (typeof updateHoverCardUI === 'function') updateHoverCardUI();
-        };
+        });
 
         function initDroneDOM() {
             let selectionState = {};
@@ -1783,7 +2686,7 @@
 
                 <div class="cc-list-container" id="cc-list-container"></div>
                 <div class="cc-card-footer">
-                    <button class="cc-btn-xs cc-btn-primary-xs" id="cc-paste-btn" title="Paste">📋</button>
+                    <button class="cc-btn-xs cc-btn-primary-xs" id="cc-paste-btn" title="Paste">🪄</button>
                     <button class="cc-btn-xs" id="cc-export-btn" title="Export">💾</button>
                     <button class="cc-btn-xs" id="cc-clear-btn" title="Clear">🗑️</button>
                     <button class="cc-btn-xs" id="cc-expand-btn" title="Expand">
@@ -1791,6 +2694,7 @@
                             <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
                         </svg>
                     </button> 
+                    <button class="cc-btn-xs" id="cc-source-btn" title="Toggle Source">🔗</button>
                 </div>
             `;
             document.body.appendChild(card);
@@ -1894,13 +2798,62 @@
                             updateHoverCardUI();
                         };
 
+                        row.ondblclick = (e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+
+                            const curT = LANG_DATA[state.lang];
+
+                            showEditorModal(
+                                curT.mm_node_edit || "編輯項目",
+                                item.text,
+                                null,
+                                (newText) => {
+                                    if (!newText || newText === item.text) return;
+
+                                    updateBasketItemText(id, newText, () => {
+                                        showToast("Saved ✨");
+                                    });
+                                }
+                            );
+                        };
+
                         row.addEventListener('dragstart', (e) => {
                             e.dataTransfer.effectAllowed = 'copyMove';
-                            e.dataTransfer.setData('text/plain', item.text);
+                            const selectedIds = basket
+                                .map(it => it && it.id)
+                                .filter(itemId => itemId && selectionState[itemId]);
+
+                            let dragText = '';
+                            let draggedIds = [];
+                            if (selectionState[id] && selectedIds.length > 1) {
+                                const selectedItems = selectedIds
+                                    .map(selectedId => basket.find(it => it && it.id === selectedId))
+                                    .filter(Boolean);
+
+                                dragText = formatDragText(selectedItems);
+                                draggedIds = selectedIds;
+                                listContainer.querySelectorAll('.cc-list-item.selected').forEach(el => {
+                                    el.classList.add('dragging');
+                                });
+                            } else {
+                                dragText = formatDragText(item);
+                                draggedIds = [id];
+                                row.classList.add('dragging');
+                            }
+                            e.dataTransfer.setData('text/plain', dragText);
+                            if (typeof simpleMarkdownParser === 'function') {
+                                const htmlContent = simpleMarkdownParser(dragText);
+                                e.dataTransfer.setData('text/html', htmlContent);
+                            }
                             e.dataTransfer.setData('application/cc-drone-id', id);
-                            row.classList.add('dragging');
+                            e.dataTransfer.setData('application/cc-drone-ids', JSON.stringify(draggedIds));
                         });
-                        row.addEventListener('dragend', () => { row.classList.remove('dragging'); });
+                        row.addEventListener('dragend', () => {
+                            listContainer.querySelectorAll('.cc-list-item.dragging').forEach(el => {
+                                el.classList.remove('dragging');
+                            });
+                        });
                         row.addEventListener('dragover', (e) => {
                             e.preventDefault();
                             if (e.dataTransfer.types.includes('application/cc-drone-id')) row.style.borderTop = '2px solid #00d2ff';
@@ -1935,11 +2888,11 @@
                 const pasteTxt = curT.pip_btn_paste || "Paste";
 
                 if (activeCount > 0) {
-                    pasteBtn.innerHTML = `📋(${activeCount})`;
+                    pasteBtn.innerHTML = `🪄(${activeCount})`;
                     pasteBtn.style.opacity = '1';
                     pasteBtn.style.cursor = 'pointer';
                 } else {
-                    pasteBtn.innerHTML = `📋`;
+                    pasteBtn.innerHTML = `🪄`;
                     pasteBtn.style.opacity = '0.5';
                     pasteBtn.style.cursor = 'default';
                 }
@@ -1981,21 +2934,55 @@
                 };
             }
 
+            const sourceBtn = card.querySelector('#cc-source-btn');
+            const updateSourceBtn = () => {
+                if (!sourceBtn) return;
+                const t = LANG_DATA[state.lang] || {};
+                sourceBtn.innerText = state.includeSource ? '🔗' : '⛓️‍💥';
+                sourceBtn.style.opacity = state.includeSource ? '1' : '0.5';
+                sourceBtn.title = state.includeSource ? (t.btn_source_on || "Source: ON") : (t.btn_source_off || "Source: OFF");
+            };
+
+            if (sourceBtn) {
+                sourceBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    state.includeSource = !state.includeSource;
+                    updateSourceBtn();
+
+                    const stdBtn = document.getElementById('sys-btn-source-toggle');
+                    if (stdBtn) {
+                        stdBtn.innerText = state.includeSource ? '🔗' : '⛓️‍💥';
+                        stdBtn.style.opacity = state.includeSource ? '1' : '0.5';
+                    }
+                    const mechBtn = document.getElementById('mech-sys-btn-source');
+                    if (mechBtn) {
+                        mechBtn.innerText = state.includeSource ? '🔗' : '⛓️‍💥';
+                        mechBtn.style.opacity = state.includeSource ? '1' : '0.5';
+                        mechBtn.style.color = state.includeSource ? 'var(--mech-accent)' : '#555';
+                    }
+
+                    showToast(state.includeSource ? "Source: ON" : "Source: OFF");
+                    updateBasketUI();
+                };
+                updateSourceBtn();
+            }
+
             card.querySelector('#cc-paste-btn').onclick = (e) => {
                 e.stopPropagation();
                 if (basket.length === 0) return;
-                let textToPaste = "";
+
                 const byId = new Map(basket.filter(it => it && it.id).map(it => [it.id, it]));
                 const selectedIds = basket.map(it => it && it.id).filter(id => id && selectionState[id]);
+
                 if (selectedIds.length > 0) {
-                    textToPaste = selectedIds.map(id => (byId.get(id)?.text || '')).filter(Boolean).join('\n\n');
+                    const selectedItems = selectedIds.map(id => byId.get(id)).filter(Boolean);
+                    const textToPaste = constructFinalContent(null, selectedItems);
                     forceInsertToLLM(textToPaste);
                     card.style.transform = "translateY(0) scale(1.02)";
                     setTimeout(() => card.style.transform = "translateY(0) scale(1)", 150);
                 } else {
                     showToast("Please select items to paste 📋");
                     return;
-
                 }
             };
 
@@ -2010,16 +2997,28 @@
 
             card.querySelector('#cc-clear-btn').onclick = () => {
                 const curT = LANG_DATA[state.lang];
-                showMainConfirmModal(
-                    curT.pip_modal_clear_title || "Clear Basket",
-                    curT.pip_modal_clear_msg || "Are you sure you want to remove all items?",
-                    () => {
-                        basket = []; selectionState = {};
-                        basketOp({ kind: 'CLEAR' });
-                        updateDroneVisuals();
-                        showToast(curT.toast_basket_clear);
-                    }
-                );
+                const selectedIds = basket.map(it => it && it.id).filter(id => id && selectionState[id]);
+
+                if (selectedIds.length > 0) {
+                    const title = curT.pip_confirm_del_item || "Delete selected items?";
+                    const msg = `Delete ${selectedIds.length} selected items?`;
+
+                    showMainConfirmModal(title, msg, () => {
+                        let processed = 0;
+                        selectedIds.forEach(id => {
+                            basketOp({ kind: 'DELETE', id }, () => {
+                                delete selectionState[id];
+                                processed++;
+                                if (processed === selectedIds.length) {
+                                    updateDroneVisuals();
+                                    showToast(curT.toast_basket_clear || "Deleted selected items");
+                                }
+                            });
+                        });
+                    });
+                } else {
+                    showToast("Please select items to delete ⚠️");
+                }
             };
 
             card.querySelector('#cc-expand-btn').onclick = () => {
@@ -2117,323 +3116,128 @@
             qrBtn.addEventListener('click', async (e) => {
                 e.stopPropagation();
 
-                const IS_PAID_USER = false;
-                const MAX_FREE_LIMIT = 10;
-                const WATERMARK_START_AT = 5;
-                const STORAGE_KEY = 'cc_qr_beta_usage';
+                attemptFeatureUsage('qrcode', async (currentStats, currentTier) => {
 
-                const getUsageCount = () => new Promise(resolve => {
-                    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-                        chrome.storage.local.get([STORAGE_KEY], (res) => resolve(res[STORAGE_KEY] || 0));
-                    } else { resolve(0); }
-                });
+                    let basketItems = [];
+                    const selectedItems = basket.filter(it => it && it.id && selectionState[it.id]);
+                    if (selectedItems.length > 0) basketItems = selectedItems;
 
-                const incrementUsageCount = (current) => {
-                    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-                        chrome.storage.local.set({ [STORAGE_KEY]: current + 1 });
+                    let pageSelectedText = "";
+                    if (typeof getSelectedText === 'function') pageSelectedText = getSelectedText(false) || "";
+
+                    if (basketItems.length === 0 && !pageSelectedText) {
+                        showToast("No items selected! 📱");
+                        return;
                     }
-                };
 
-                let currentUsage = await getUsageCount();
-                let remaining = Math.max(0, MAX_FREE_LIMIT - currentUsage);
+                    const WATERMARK_START_AT = 5;
+                    const currentUsage = currentStats.counts.qrcode || 0;
+                    const shouldAddWatermark = (currentStats.tier === 1 && currentUsage >= WATERMARK_START_AT);
 
-                const betaLimitTexts = {
-                    'en': {
-                        title: "Beta Limit Reached",
-                        msg: "To keep our servers fast and free during the Beta, daily transfer limits are applied.",
-                        q: "Do you find this feature useful?",
-                        sub: "Let us know if you want unlimited access in the future.",
-                        btn_yes: "Yes, I want Unlimited Access! 🚀",
-                        btn_thanks: "Thanks for your feedback! ❤️",
-                        close: "Close"
-                    },
-                    'zh-TW': {
-                        title: "已達 Beta 測試限制",
-                        msg: "為了確保 Beta 期間的伺服器速度與免費服務，我們設有傳輸限制。",
-                        q: "您覺得這個功能實用嗎？",
-                        sub: "讓我們知道您是否希望未來能無限使用。",
-                        btn_yes: "是的，我想要無限使用！ 🚀",
-                        btn_thanks: "感謝您的回饋！ ❤️",
-                        close: "關閉"
-                    },
-                    'zh-CN': {
-                        title: "已达 Beta 测试限制",
-                        msg: "为了确保 Beta 期间的服务器速度与免费服务，我们设有传输限制。",
-                        q: "您觉得这个功能实用吗？",
-                        sub: "让我们知道您是否希望未来能无限使用。",
-                        btn_yes: "是的，我想要无限使用！ 🚀",
-                        btn_thanks: "感谢您的反馈！ ❤️",
-                        close: "关闭"
-                    },
-                    'ja': {
-                        title: "ベータ版の制限に達しました",
-                        msg: "ベータ期間中のサーバー速度と無料提供を維持するため、転送制限を設けています。",
-                        q: "この機能は役に立ちましたか？",
-                        sub: "将来的に無制限アクセスをご希望かお知らせください。",
-                        btn_yes: "はい、無制限アクセスが欲しいです！ 🚀",
-                        btn_thanks: "フィードバックありがとうございます！ ❤️",
-                        close: "閉じる"
-                    },
-                    'ko': {
-                        title: "베타 한도 도달",
-                        msg: "베타 기간 동안 서버 속도와 무료 제공을 유지하기 위해 일일 전송 제한이 적용됩니다.",
-                        q: "이 기능이 유용했나요?",
-                        sub: "나중에 무제한 액세스를 원하시는지 알려주세요.",
-                        btn_yes: "네, 무제한 이용을 원해요! 🚀",
-                        btn_thanks: "피드백 감사합니다! ❤️",
-                        close: "닫기"
+                    const css = `
+                        body { font-family: sans-serif; padding: 20px; background: #f9f9f9; color: #333; line-height: 1.6; position: relative; min-height: 100vh; }
+                        .card { background: #fff; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 4px solid #00d2ff; position: relative; z-index: 1; }
+                        .header { text-align: center; margin-bottom: 20px; color: #555; border-bottom: 2px solid #ddd; padding-bottom: 10px; z-index: 1; position: relative; }
+                        .content { white-space: pre-wrap; word-break: break-word; font-size: 14px; }
+                        .tag { display: inline-block; background: #eee; padding: 2px 6px; border-radius: 4px; font-size: 10px; color: #555; }
+                        .watermark-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9999; display: flex; flex-wrap: wrap; align-content: flex-start; overflow: hidden; opacity: 0.08; }
+                        .watermark-text { width: 200px; height: 150px; display: flex; align-items: center; justify-content: center; transform: rotate(-30deg); font-size: 18px; font-weight: bold; color: #000; }
+                    `;
+
+                    let htmlContent = `<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body>`;
+
+                    if (shouldAddWatermark) {
+                        let watermarks = "";
+                        for (let i = 0; i < 30; i++) watermarks += `<div class="watermark-text">Context Drone<br>Beta</div>`;
+                        htmlContent += `<div class="watermark-container">${watermarks}</div>`;
                     }
-                };
 
-                const lt = betaLimitTexts[state.lang] || betaLimitTexts['en'];
+                    htmlContent += `<div class="header">ContextDrone Share<br><span style="font-size:10px; font-weight:normal;">${new Date().toLocaleString()}</span></div>`;
 
-                if (currentUsage >= MAX_FREE_LIMIT) {
+                    if (pageSelectedText) {
+                        htmlContent += `<div class="card" style="border-left-color: #ff9800;"><div style="font-size:12px; color:#999;">📄 Selection</div><div class="content">${escapeHTML(pageSelectedText)}</div></div>`;
+                    }
+
+                    basketItems.forEach(item => {
+                        const tagsHtml = (item.tags && item.tags.length) ? item.tags.map(t => `<span class="tag">#${t}</span>`).join('') : '';
+                        htmlContent += `<div class="card"><div style="font-size:12px; color:#999;">SOURCE: ${escapeHTML(item.source || 'Unknown')}</div><div class="content">${escapeHTML(item.text)}</div><div style="margin-top:8px;">${tagsHtml}</div></div>`;
+                    });
+                    htmlContent += `</body></html>`;
+
                     const existing = document.querySelector('.cc-qr-modal');
                     if (existing) existing.remove();
 
-                    const limitModal = document.createElement('div');
-                    limitModal.className = 'cc-qr-modal';
-                    Object.assign(limitModal.style, {
+                    const modal = document.createElement('div');
+                    modal.className = 'cc-qr-modal';
+                    Object.assign(modal.style, {
                         position: 'fixed', top: '0', left: '0', width: '100vw', height: '100vh',
-                        zIndex: '2147483660', backgroundColor: 'rgba(0,0,0,0.85)',
-                        backdropFilter: 'blur(5px)', display: 'flex', alignItems: 'center', justifyContent: 'center'
+                        zIndex: '2147483660', backgroundColor: 'rgba(0,0,0,0.8)',
+                        backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center'
                     });
 
-                    limitModal.innerHTML = `
-                        <div class="cc-qr-card" style="background: #fff; padding: 30px; border-radius: 12px; max-width: 340px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.6); position: relative;">
-                            <div style="font-size: 40px; margin-bottom: 10px;">🚧</div>
-                            <h3 style="margin: 0 0 10px 0; color: #333;">${lt.title}</h3>
-                            <p style="font-size: 14px; color: #666; line-height: 1.5; margin-bottom: 20px;">
-                                ${lt.msg}<br><br>
-                                <strong>${lt.q}</strong><br>
-                                ${lt.sub}
-                            </p>
-                            
-                            <button id="cc-btn-vote" style="width: 100%; padding: 12px; background: linear-gradient(135deg, #00d2ff 0%, #3a7bd5 100%); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; margin-bottom: 10px; box-shadow: 0 4px 15px rgba(0, 210, 255, 0.3);">
-                                ${lt.btn_yes}
-                            </button>
-                            
-                            <button id="cc-close-limit" style="background: none; border: none; color: #999; font-size: 12px; cursor: pointer; text-decoration: underline;">${lt.close}</button>
+                    const limit = (currentStats.tier === 1) ? GROWTH_CONFIG.LIMITS.qrcode.tier1 : GROWTH_CONFIG.LIMITS.qrcode.tier2;
+                    const remaining = Math.max(0, limit - currentUsage);
+                    const footerMsg = (currentStats.tier >= 2)
+                        ? `✨ Pro Tier: High Limits`
+                        : `⚠️ Free Tier Left: ${remaining}`;
+
+                    modal.innerHTML = `
+                        <div class="cc-qr-card" style="background: #fff; padding: 25px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; max-width: 90%;">
+                            <div id="qr-status-text" style="font-weight:bold; margin-bottom:15px; color:#333;">☁️ Encrypting & Uploading...</div>
+                            <div id="qrcode-container" style="background:#f5f5f5; padding:20px; border-radius:8px; min-width:200px; min-height:200px; display:flex; justify-content:center; align-items:center;">
+                                <div class="cc-spinner" style="border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite;"></div>
+                            </div>
+                            <div id="qr-footer-text" style="font-size:11px; color:#666; margin-top:15px; text-align: center;">${footerMsg}</div>
+                            <button id="cc-close-qr" style="margin-top:20px; padding:8px 30px; cursor:pointer; background:#333; color: #fff; border:none; border-radius:6px;">Close</button>
                         </div>
+                        <style>@keyframes spin {0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); }}</style>
                     `;
 
-                    document.body.appendChild(limitModal);
+                    modal.querySelector('#cc-close-qr').onclick = () => modal.remove();
+                    document.body.appendChild(modal);
 
-                    limitModal.querySelector('#cc-close-limit').onclick = () => limitModal.remove();
+                    const container = modal.querySelector('#qrcode-container');
+                    const statusText = modal.querySelector('#qr-status-text');
 
-                    limitModal.querySelector('#cc-btn-vote').onclick = () => {
-                        const btn = limitModal.querySelector('#cc-btn-vote');
-                        btn.innerText = lt.btn_thanks;
-                        btn.style.background = "#4CAF50";
-                        btn.disabled = true;
+                    try {
+                        const retentionType = (currentStats.tier >= 2) ? 'long' : 'short';
+                        const secureLink = await uploadToMyServerSecure(htmlContent, retentionType);
 
-                        fetch('https://qrcode.doglab24.org/api/feedback', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'x-secret-token': 'dogegg-qrcode-generator'
-                            },
-                            body: JSON.stringify({
-                                event: 'limit_reached_interest',
-                                timestamp: Date.now(),
-                                lang: state.lang || 'en'
-                            })
-                        }).catch(err => console.error("Feedback failed", err));
+                        statusText.innerText = "📱 Scan to View";
+                        container.innerHTML = '';
 
-                        console.log("User voted for paid feature! (Sent to server)");
-
-                        setTimeout(() => limitModal.remove(), 1500);
-                    };
-
-                    return;
-                }
-
-                let basketItems = [];
-                const selectedItems = basket.filter(it => it && it.id && selectionState[it.id]);
-                if (selectedItems.length > 0) basketItems = selectedItems;
-
-                let pageSelectedText = "";
-                if (typeof getSelectedText === 'function') pageSelectedText = getSelectedText(false) || "";
-
-                if (basketItems.length === 0 && !pageSelectedText) {
-                    showToast("No items selected! 📱");
-                    return;
-                }
-
-                const css = `
-                    body { font-family: sans-serif; padding: 20px; background: #f9f9f9; color: #333; line-height: 1.6; position: relative; min-height: 100vh; }
-                    .card { background: #fff; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 4px solid #00d2ff; position: relative; z-index: 1; }
-                    .header { text-align: center; margin-bottom: 20px; color: #555; border-bottom: 2px solid #ddd; padding-bottom: 10px; z-index: 1; position: relative; }
-                    .content { white-space: pre-wrap; word-break: break-word; font-size: 14px; }
-                    .tag { display: inline-block; background: #eee; padding: 2px 6px; border-radius: 4px; font-size: 10px; color: #555; }
-                    
-                    .watermark-container {
-                        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-                        pointer-events: none; z-index: 9999;
-                        display: flex; flex-wrap: wrap; align-content: flex-start;
-                        overflow: hidden; opacity: 0.08;
+                        if (typeof qrcode === 'function') {
+                            const qr = qrcode(0, 'L');
+                            qr.addData(secureLink);
+                            qr.make();
+                            container.innerHTML = qr.createImgTag(5, 10);
+                            const img = container.querySelector('img');
+                            if (img) { img.style.maxWidth = '100%'; img.style.height = 'auto'; }
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        statusText.innerText = "Error";
+                        container.innerHTML = `<div style="color:red; font-size:12px;">Failed to upload.<br>${err.message}</div>`;
                     }
-                    .watermark-text {
-                        width: 200px; height: 150px; display: flex; align-items: center; justify-content: center;
-                        transform: rotate(-30deg); font-size: 18px; font-weight: bold; color: #000;
-                    }
-                    @media print { .watermark-container { opacity: 0.15; } }
-                `;
-
-                let htmlContent = `<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body>`;
-
-                if (!IS_PAID_USER && currentUsage >= WATERMARK_START_AT) {
-                    let watermarks = "";
-                    for (let i = 0; i < 30; i++) watermarks += `<div class="watermark-text">Context Carry<br>Beta Version</div>`;
-                    htmlContent += `<div class="watermark-container">${watermarks}</div>`;
-                }
-
-                htmlContent += `<div class="header">Context-Carry Share<br><span style="font-size:10px; font-weight:normal;">${new Date().toLocaleString()}</span></div>`;
-
-                if (pageSelectedText) {
-                    htmlContent += `<div class="card" style="border-left-color: #ff9800;"><div style="font-size:12px; color:#999;">📄 Selection</div><div class="content">${escapeHTML(pageSelectedText)}</div></div>`;
-                }
-
-                basketItems.forEach(item => {
-                    const tagsHtml = (item.tags && item.tags.length) ? item.tags.map(t => `<span class="tag">#${t}</span>`).join('') : '';
-                    htmlContent += `<div class="card"><div style="font-size:12px; color:#999;">SOURCE: ${escapeHTML(item.source || 'Unknown')}</div><div class="content">${escapeHTML(item.text)}</div><div style="margin-top:8px;">${tagsHtml}</div></div>`;
                 });
-                htmlContent += `</body></html>`;
-
-
-                const existing = document.querySelector('.cc-qr-modal');
-                if (existing) existing.remove();
-
-                const modal = document.createElement('div');
-                modal.className = 'cc-qr-modal';
-                Object.assign(modal.style, {
-                    position: 'fixed', top: '0', left: '0', width: '100vw', height: '100vh',
-                    zIndex: '2147483660', backgroundColor: 'rgba(0,0,0,0.8)',
-                    backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center'
-                });
-
-                let footerMsg = IS_PAID_USER
-                    ? `✨ Premium: Unlimited Access`
-                    : `⚠️ Free Scans Left: ${remaining}`;
-
-                modal.innerHTML = `
-                    <div class="cc-qr-card" style="background: #fff; padding: 25px; border-radius: 12px; display: flex; flex-direction: column; align-items: center; max-width: 90%;">
-                        <div id="qr-status-text" style="font-weight:bold; margin-bottom:15px; color:#333;">☁️ Processing...</div>
-                        <div id="qrcode-container" style="background:#f5f5f5; padding:20px; border-radius:8px; min-width:200px; min-height:200px; display:flex; justify-content:center; align-items:center;">
-                            <div class="cc-spinner" style="border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite;"></div>
-                        </div>
-                        <div id="qr-footer-text" style="font-size:11px; color:#666; margin-top:15px; text-align: center;">${footerMsg}</div>
-                        
-                        <button id="cc-close-qr" style="margin-top:20px; padding:8px 30px; cursor:pointer; background:#333; color: #fff; border:none; border-radius:6px;">${lt.close}</button>
-                    </div>
-                    <style>@keyframes spin {0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); }}</style>
-                `;
-
-                modal.querySelector('#cc-close-qr').onclick = () => modal.remove();
-                document.body.appendChild(modal);
-
-                const container = modal.querySelector('#qrcode-container');
-                const statusText = modal.querySelector('#qr-status-text');
-
-                try {
-                    const retentionType = IS_PAID_USER ? 'long' : 'short';
-                    const secureLink = await uploadToMyServerSecure(htmlContent, retentionType);
-
-                    if (!IS_PAID_USER) {
-                        incrementUsageCount(currentUsage);
-                        currentUsage += 1;
-                        remaining = Math.max(0, MAX_FREE_LIMIT - currentUsage);
-                        modal.querySelector('#qr-footer-text').innerText = `⚠️ Free Scans Left: ${remaining}`;
-                    }
-
-                    statusText.innerText = "📱 Scan to View";
-                    container.innerHTML = '';
-
-                    if (typeof qrcode === 'function') {
-                        const qr = qrcode(0, 'L');
-                        qr.addData(secureLink);
-                        qr.make();
-                        container.innerHTML = qr.createImgTag(5, 10);
-                        const img = container.querySelector('img');
-                        if (img) { img.style.maxWidth = '100%'; img.style.height = 'auto'; }
-                    }
-                } catch (err) {
-                    console.error(err);
-                    statusText.innerText = "Error";
-                    container.innerHTML = `<div style="color:red; font-size:12px;">Failed to upload.<br>${err.message}</div>`;
-                }
             });
-
-            async function uploadToMyServerSecure(htmlContent, retentionType = 'short') {
-                const key = await window.crypto.subtle.generateKey(
-                    { name: "AES-GCM", length: 256 },
-                    true,
-                    ["encrypt", "decrypt"]
-                );
-
-                const iv = window.crypto.getRandomValues(new Uint8Array(12));
-                const encoder = new TextEncoder();
-                const encodedData = encoder.encode(htmlContent);
-
-                const encryptedBuffer = await window.crypto.subtle.encrypt(
-                    { name: "AES-GCM", iv: iv },
-                    key,
-                    encodedData
-                );
-
-                const contentB64 = arrayBufferToBase64(encryptedBuffer);
-                const ivB64 = arrayBufferToBase64(iv);
-
-
-                const DOMAIN = 'https://qrcode.doglab24.org';
-                const API_ENDPOINT = `${DOMAIN}/api/upload`;
-
-                const uploadPayload = JSON.stringify({
-                    data: contentB64,
-                    iv: ivB64
-                });
-
-                const response = await fetch(API_ENDPOINT, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-Secret-Token': 'dogegg-qrcode-generator'
-                    },
-                    body: JSON.stringify({
-                        content: uploadPayload,
-                        type: retentionType
-                    })
-                });
-
-                if (!response.ok) throw new Error("Upload Failed: " + response.statusText);
-
-                const resJson = await response.json();
-                const exportedKey = await window.crypto.subtle.exportKey("jwk", key);
-                const keyString = btoa(JSON.stringify(exportedKey));
-                const VIEWER_URL = `${DOMAIN}/viewer.html`;
-
-                return `${VIEWER_URL}?id=${resJson.id}&type=${resJson.type}#${keyString}`;
-            }
-
-            function arrayBufferToBase64(buffer) {
-                let binary = '';
-                const bytes = new Uint8Array(buffer);
-                const len = bytes.byteLength;
-                for (let i = 0; i < len; i++) {
-                    binary += String.fromCharCode(bytes[i]);
-                }
-                return window.btoa(binary);
-            }
 
             // Pin
             pinBtn.addEventListener('dragstart', (e) => {
                 e.stopPropagation();
                 e.dataTransfer.setData('application/cc-pin', 'true');
                 e.dataTransfer.effectAllowed = 'copy';
+                e.dataTransfer.setData('text/plain', 'ContextDrone Pin');
 
                 const dragIcon = document.createElement('div');
                 dragIcon.innerText = '📌';
-                dragIcon.style.fontSize = '24px';
+                Object.assign(dragIcon.style, {
+                    fontSize: '24px',
+                    position: 'absolute',
+                    top: '-9999px',
+                    left: '-9999px',
+                    pointerEvents: 'none'
+                });
                 document.body.appendChild(dragIcon);
                 e.dataTransfer.setDragImage(dragIcon, 12, 12);
                 setTimeout(() => dragIcon.remove(), 0);
@@ -2446,6 +3250,7 @@
                 e.stopPropagation();
                 pinBtn.style.opacity = '';
                 document.body.classList.remove('cc-pin-dragging');
+                cleanUpSiteOverlays();
             });
 
             pinBtn.addEventListener('click', (e) => e.stopPropagation());
@@ -2464,24 +3269,33 @@
             });
             drone.addEventListener('drop', (e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 drone.classList.remove('drag-over');
                 const text = e.dataTransfer.getData('text');
                 const curT = LANG_DATA[state.lang];
+
                 if (text) {
-                    basketOp({
-                        kind: 'ADD',
-                        item: {
-                            text: text.trim(),
-                            timestamp: Date.now(),
-                            source: window.location.hostname + (curT.src_drop || " (Drag & Drop)")
-                        }
-                    }, (res) => {
-                        getBasket((newBasket) => {
-                            basket = newBasket;
-                            updateDroneVisuals();
-                            updateDroneUI(newBasket);
-                            showToast(curT.toast_basket_add || "Added 🧺");
-                        });
+
+                    getBasket((currentBasket) => {
+                        const currentCount = currentBasket ? currentBasket.length : 0;
+                        attemptFeatureUsage('context', () => {
+
+                            basketOp({
+                                kind: 'ADD',
+                                item: {
+                                    text: text.trim(),
+                                    timestamp: Date.now(),
+                                    source: window.location.hostname + (curT.src_drop || " (Drag & Drop)")
+                                }
+                            }, (res) => {
+                                getBasket((newBasket) => {
+                                    basket = newBasket;
+                                    updateDroneVisuals();
+                                    updateDroneUI(newBasket);
+                                    showToast(curT.toast_basket_add || "Added 🧺");
+                                });
+                            });
+                        }, currentCount);
                     });
                 }
             });
@@ -2650,19 +3464,18 @@
 
         antenna.innerHTML = `<div class="antenna-tip"></div><div class="antenna-rod"></div><div class="antenna-base"></div>`;
 
-
         const leftShoulder = document.createElement('div');
         leftShoulder.className = 'shoulder-pad shoulder-left';
         leftShoulder.innerHTML = `<div class="linkage"></div>`;
 
         const btnSelectAll = document.createElement('button');
         btnSelectAll.id = 'mech-btn-select-all';
-        btnSelectAll.className = 'mech-btn'; btnSelectAll.innerText = '⚃'; btnSelectAll.title = t.btn_select_all;
+        btnSelectAll.className = 'mech-btn'; btnSelectAll.innerText = '✅'; btnSelectAll.title = t.btn_select_all;
         btnSelectAll.onclick = handleSelectAll;
 
         const btnUnselect = document.createElement('button');
         btnUnselect.id = 'mech-btn-unselect';
-        btnUnselect.className = 'mech-btn'; btnUnselect.innerText = '⊖'; btnUnselect.title = t.btn_unselect_all;
+        btnUnselect.className = 'mech-btn'; btnUnselect.innerText = '⛔'; btnUnselect.title = t.btn_unselect_all;
         btnUnselect.onclick = handleUnselectAll;
 
         const btnPaint = document.createElement('button');
@@ -2670,16 +3483,47 @@
         btnPaint.className = 'mech-btn'; btnPaint.innerText = '🖌️'; btnPaint.title = t.btn_paint + t.hint_shortcut_paint;
         btnPaint.onclick = () => { toggleSelectionMode(); container.style.opacity = '0.2'; };
 
-        leftShoulder.append(btnSelectAll, btnUnselect, btnPaint);
+        const btnPinRobot = document.createElement('button');
+        btnPinRobot.id = 'mech-btn-pin';
+        btnPinRobot.className = 'mech-btn';
+        btnPinRobot.innerText = '📌';
+        btnPinRobot.title = t.btn_ping;
+
+        btnPinRobot.draggable = true;
+        btnPinRobot.addEventListener('dragstart', (e) => {
+            e.stopPropagation();
+            if (!container.classList.contains('deployed')) {
+                container.classList.add('deployed');
+                updateRobotBasketText();
+            }
+            if (typeof switchMechTab === 'function') {
+                switchMechTab('pins');
+            }
+            e.dataTransfer.setData('application/cc-pin', 'true');
+            e.dataTransfer.effectAllowed = 'copy';
+            e.dataTransfer.setData('text/plain', 'Pin');
+            const dragIcon = document.createElement('div');
+            dragIcon.innerText = '📌';
+            Object.assign(dragIcon.style, { fontSize: '24px', position: 'absolute', top: '-9999px', left: '-9999px' });
+            document.body.appendChild(dragIcon);
+            e.dataTransfer.setDragImage(dragIcon, 12, 12);
+            requestAnimationFrame(() => dragIcon.remove());
+            document.body.classList.add('cc-pin-dragging');
+        });
+        btnPinRobot.addEventListener('dragend', () => document.body.classList.remove('cc-pin-dragging'));
+
+        leftShoulder.append(btnSelectAll, btnUnselect, btnPaint, btnPinRobot);
 
         const rightShoulder = document.createElement('div');
         rightShoulder.className = 'shoulder-pad shoulder-right';
         rightShoulder.innerHTML = `<div class="linkage"></div>`;
 
-        const btnCopy = document.createElement('button');
-        btnCopy.id = 'mech-btn-copy';
-        btnCopy.className = 'mech-btn'; btnCopy.innerText = '📋'; btnCopy.title = t.btn_copy;
-        btnCopy.onclick = handleCopyOnly;
+        const btnPasteMech = document.createElement('button');
+        btnPasteMech.id = 'mech-btn-paste-main';
+        btnPasteMech.className = 'mech-btn';
+        btnPasteMech.innerText = '🪄';
+        btnPasteMech.title = t.btn_paste_basket;
+        btnPasteMech.onclick = handlePasteBasket;
 
         const btnDownload = document.createElement('button');
         btnDownload.id = 'mech-btn-download';
@@ -2691,7 +3535,13 @@
         btnScan.className = 'mech-btn'; btnScan.innerText = '↻'; btnScan.title = t.btn_scan;
         btnScan.onclick = () => { performScan(); btnScan.style.color = '#00d2ff'; setTimeout(() => btnScan.style.color = '', 500); };
 
-        rightShoulder.append(btnCopy, btnDownload, btnScan);
+        const btnQrRobot = document.createElement('button');
+        btnQrRobot.className = 'mech-btn';
+        btnQrRobot.innerText = '📱';
+        btnQrRobot.title = "QR Code";
+        btnQrRobot.onclick = handleQrCodeAction;
+
+        rightShoulder.append(btnPasteMech, btnQrRobot, btnDownload, btnScan);
 
         const head = document.createElement('div');
         head.className = 'mech-head';
@@ -2825,6 +3675,39 @@
             return btn;
         }
 
+        const mechBtnNone = createMechSysBtn('mech-sys-btn-none', 'None', 'No Prompt', null);
+        mechBtnNone.innerText = '🛑';
+        mechBtnNone.onclick = (e) => {
+            e.stopPropagation();
+            if (prefixInput) {
+                prefixInput.value = "";
+                calculateTotalTokens();
+                flashInput(prefixInput);
+            }
+        };
+
+        const mechBtnSource = createMechSysBtn('mech-sys-btn-source', 'Src', 'Toggle Source', null);
+        const updateMechSourceStyle = () => {
+            mechBtnSource.innerText = state.includeSource ? '🔗' : '⛓️‍💥';
+            mechBtnSource.style.opacity = state.includeSource ? '1' : '0.5';
+            mechBtnSource.style.color = state.includeSource ? 'var(--mech-accent)' : '#555';
+        };
+        updateMechSourceStyle();
+        mechBtnSource.onclick = (e) => {
+            e.stopPropagation();
+            state.includeSource = !state.includeSource;
+            updateMechSourceStyle();
+
+            const stdBtn = document.getElementById('sys-btn-source-toggle');
+            if (stdBtn) {
+                stdBtn.innerText = state.includeSource ? '🔗' : '⛓️‍💥';
+                stdBtn.style.opacity = state.includeSource ? '1' : '0.5';
+            }
+
+            showToast(state.includeSource ? "Source: ON" : "Source: OFF");
+            updateBasketUI();
+        };
+
         const mechBtnSum = createMechSysBtn('mech-sys-btn-sum', 'sys_btn_summary', 'sys_tooltip_summary', 'sys_prompt_summary');
         const mechBtnTrans = createMechSysBtn('mech-sys-btn-trans', 'sys_btn_translate', 'sys_tooltip_translate', 'sys_prompt_translate');
         const mechBtnExp = createMechSysBtn('mech-sys-btn-exp', 'sys_btn_explain', 'sys_tooltip_explain', 'sys_prompt_explain');
@@ -2834,7 +3717,7 @@
         mechBtnLoad.textContent = '👤';
         mechBtnLoad.onclick = (e) => { e.stopPropagation(); handleLoadPromptClick(mechBtnLoad); };
 
-        mechToolbar.append(mechBtnSum, mechBtnTrans, mechBtnExp, mechBtnSave, mechBtnLoad);
+        mechToolbar.append(mechBtnNone, mechBtnSum, mechBtnTrans, mechBtnExp, mechBtnSave, mechBtnLoad);
 
         const robotInput = document.createElement('textarea');
         robotInput.className = 'main-input';
@@ -2903,20 +3786,263 @@
         const hook = document.createElement('div');
         hook.className = 'basket-hook';
         basketContainer.appendChild(hook);
+        const mechTabBar = document.createElement('div');
+        mechTabBar.id = 'mech-content-tab-bar';
+        Object.assign(mechTabBar.style, {
+            display: 'flex',
+            gap: '4px',
+            marginBottom: '8px',
+            padding: '0 4px'
+        });
+
+        const createMechTab = (id, label, icon, isDefault = false) => {
+            const tab = document.createElement('button');
+            tab.id = id;
+            tab.className = 'mech-content-tab' + (isDefault ? ' active' : '');
+            tab.innerHTML = `${icon} <span>${label}</span><span class="mech-tab-badge" style="display:none;margin-left:4px;background:#ff5252;color:#fff;padding:0 5px;border-radius:10px;font-size:9px;"></span>`;
+            Object.assign(tab.style, {
+                flex: '1',
+                padding: '6px 8px',
+                border: '1px solid var(--mech-border, #333)',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '10px',
+                fontWeight: '600',
+                letterSpacing: '1px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '4px',
+                transition: 'all 0.2s',
+                background: isDefault ? 'var(--mech-accent, #00d2ff)' : 'transparent',
+                color: isDefault ? '#000' : 'var(--mech-text-dim, #666)'
+            });
+            return tab;
+        };
+
+        const mechTabBasket = createMechTab('mech-tab-basket', 'CARGO', '📦', state.contentPanelTab === 'basket');
+        const mechTabPins = createMechTab('mech-tab-pins', 'PINS', '📍', state.contentPanelTab === 'pins');
+
+        const switchMechTab = (tabName) => {
+            state.contentPanelTab = tabName;
+            const isBasket = tabName === 'basket';
+
+            mechTabBasket.style.background = isBasket ? 'var(--mech-accent, #00d2ff)' : 'transparent';
+            mechTabBasket.style.color = isBasket ? '#000' : 'var(--mech-text-dim, #666)';
+            mechTabBasket.classList.toggle('active', isBasket);
+
+            mechTabPins.style.background = !isBasket ? 'var(--mech-accent, #00d2ff)' : 'transparent';
+            mechTabPins.style.color = !isBasket ? '#000' : 'var(--mech-text-dim, #666)';
+            mechTabPins.classList.toggle('active', !isBasket);
+
+            const mechBasketSection = document.getElementById('mech-basket-section');
+            const mechPinSection = document.getElementById('mech-pin-section');
+
+            if (mechBasketSection) mechBasketSection.style.display = isBasket ? 'block' : 'none';
+            if (mechPinSection) mechPinSection.style.display = !isBasket ? 'block' : 'none';
+        };
+
+        mechTabBasket.onclick = () => switchMechTab('basket');
+        mechTabPins.onclick = () => switchMechTab('pins');
+
+        mechTabBar.append(mechTabBasket, mechTabPins);
+
+        updateMechTabBadges = () => {
+            const basketBadge = mechTabBasket.querySelector('.mech-tab-badge');
+            const pinBadge = mechTabPins.querySelector('.mech-tab-badge');
+
+            if (basketBadge) {
+                const count = basket.length;
+                basketBadge.textContent = count;
+                basketBadge.style.display = count > 0 ? 'inline' : 'none';
+            }
+
+            if (pinBadge) {
+                const pinCount = pinManager.pins.length;
+                pinBadge.textContent = pinCount;
+                pinBadge.style.display = pinCount > 0 ? 'inline' : 'none';
+            }
+        };
+        const mechPinChangeCallback = () => {
+            updateMechTabBadges();
+            renderMechPinPanel();
+        };
+        pinManager.registerOnChange(mechPinChangeCallback);
+        setTimeout(() => mechPinChangeCallback(), 0);
+
+        const mechBasketSection = document.createElement('div');
+        mechBasketSection.id = 'mech-basket-section';
 
         const tools = document.createElement('div');
         tools.className = 'basket-tools';
         tools.id = 'mech-basket-toolbar';
         const btnAdd = document.createElement('button'); btnAdd.className = 'tiny-btn'; btnAdd.innerText = t.btn_add_basket; btnAdd.onclick = handleAddToBasket; btnAdd.id = 'mech-basket-add';
-        const btnPaste = document.createElement('button'); btnPaste.className = 'tiny-btn'; btnPaste.innerText = t.btn_paste_basket; btnPaste.onclick = handlePasteBasket; btnPaste.id = 'mech-basket-paste';
         const btnNewDoc = document.createElement('button'); btnNewDoc.className = 'tiny-btn'; btnNewDoc.id = 'mech-basket-new'; btnNewDoc.innerText = t.btn_new_doc; btnNewDoc.onclick = handleNewDoc;
         const btnClear = document.createElement('button'); btnClear.className = 'tiny-btn'; btnClear.innerText = t.btn_clear_basket; btnClear.style.color = '#ff5555'; btnClear.onclick = handleClearBasket; btnClear.id = 'mech-basket-clear';
-        tools.append(btnAdd, btnPaste, btnNewDoc, btnClear);
+        tools.append(mechBtnSource, btnAdd, btnNewDoc, btnClear);
 
         const list = document.createElement('div');
         list.id = 'mech-basket-list';
         basketPreviewList = list;
+        mechBasketSection.append(tools, list);
 
+        const mechPinSection = document.createElement('div');
+        mechPinSection.id = 'mech-pin-section';
+        Object.assign(mechPinSection.style, {
+            display: 'none',
+            padding: '4px'
+        });
+
+        const mechPinTools = document.createElement('div');
+        mechPinTools.className = 'basket-tools';
+        Object.assign(mechPinTools.style, {
+            marginBottom: '8px',
+            justifyContent: 'space-between'
+        });
+
+        const mechPinStatus = document.createElement('span');
+        mechPinStatus.id = 'mech-pin-status';
+        mechPinStatus.textContent = t.pin_status_empty || '📍 NO PINS';
+        Object.assign(mechPinStatus.style, {
+            fontSize: '10px',
+            color: 'var(--mech-text-dim)',
+            letterSpacing: '1px'
+        });
+
+        const mechBtnClearPins = document.createElement('button');
+        mechBtnClearPins.className = 'tiny-btn';
+        mechBtnClearPins.innerText = '🗑️';
+        mechBtnClearPins.id = 'mech-pin-clear';
+        mechBtnClearPins.style.color = '#ff5555';
+        mechBtnClearPins.onclick = () => {
+            const t = LANG_DATA[state.lang];
+            if (pinManager.pins.length === 0) return;
+            showMainConfirmModal(
+                t.confirm_clear_pins || 'Clear all pins?',
+                t.confirm_clear_pins_msg || 'This will remove all pinned locations.',
+                () => {
+                    while (pinManager.pins.length > 0) {
+                        pinManager.removePin(pinManager.pins[0].id);
+                    }
+                    showToast(t.toast_pins_cleared || 'All pins cleared');
+                }
+            );
+        };
+
+        mechPinTools.append(mechPinStatus, mechBtnClearPins);
+
+        const mechPinList = document.createElement('div');
+        mechPinList.id = 'mech-pin-list';
+        Object.assign(mechPinList.style, {
+            maxHeight: '180px',
+            overflowY: 'auto'
+        });
+
+        const renderMechPinPanel = () => {
+            mechPinList.innerHTML = '';
+            const pins = pinManager.pins;
+
+            if (pins.length === 0) {
+                mechPinStatus.textContent = t.pin_status_empty || '📍 NO PINS';
+                mechPinStatus.style.color = 'var(--mech-text-dim)';
+                mechPinList.innerHTML = `<div style="text-align:center;color:var(--mech-text-dim);font-size:10px;padding:20px;border:1px dashed var(--mech-border);border-radius:4px;letter-spacing:1px;">
+                    ${t.pin_empty_hint || 'DRAG 📌 TO PIN LOCATIONS'}
+                </div>`;
+                updateMechTabBadges();
+                return;
+            }
+
+            mechPinStatus.textContent = (t.pin_status || '📍 {n} PINS').replace('{n}', pins.length).toUpperCase();
+            mechPinStatus.style.color = 'var(--mech-accent)';
+
+            pins.forEach((p, idx) => {
+                const row = document.createElement('div');
+                row.className = 'mech-pin-item';
+                Object.assign(row.style, {
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px',
+                    marginBottom: '4px',
+                    background: 'var(--mech-bg-dark, #1a1a1a)',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                    border: '1px solid var(--mech-border, #333)'
+                });
+
+                row.onmouseenter = () => {
+                    row.style.borderColor = 'var(--mech-accent, #00d2ff)';
+                    row.style.background = 'var(--mech-bg-hover, #252525)';
+                };
+                row.onmouseleave = () => {
+                    row.style.borderColor = 'var(--mech-border, #333)';
+                    row.style.background = 'var(--mech-bg-dark, #1a1a1a)';
+                };
+
+                const info = document.createElement('div');
+                info.style.flex = '1';
+                info.style.overflow = 'hidden';
+                info.innerHTML = `
+                    <div style="font-size:9px;color:var(--mech-text-dim);margin-bottom:2px;letter-spacing:1px;">📍 PIN ${idx + 1}</div>
+                    <div style="font-size:10px;color:var(--mech-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHTML(p.text)}</div>
+                `;
+
+                const actions = document.createElement('div');
+                actions.style.display = 'flex';
+                actions.style.gap = '4px';
+
+                const gotoBtn = document.createElement('button');
+                gotoBtn.innerHTML = '🎯';
+                gotoBtn.title = t.pin_goto || 'Jump to location';
+                Object.assign(gotoBtn.style, {
+                    background: 'transparent',
+                    border: '1px solid var(--mech-border)',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    padding: '4px 6px',
+                    transition: 'all 0.2s'
+                });
+                gotoBtn.onmouseenter = () => { gotoBtn.style.borderColor = 'var(--mech-accent)'; };
+                gotoBtn.onmouseleave = () => { gotoBtn.style.borderColor = 'var(--mech-border)'; };
+                gotoBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    pinManager.scrollToPin(p.id);
+                };
+
+                const delBtn = document.createElement('button');
+                delBtn.innerHTML = '✕';
+                delBtn.title = t.pin_remove || 'Remove pin';
+                Object.assign(delBtn.style, {
+                    background: 'transparent',
+                    border: '1px solid var(--mech-border)',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '10px',
+                    color: 'var(--mech-text-dim)',
+                    padding: '4px 6px',
+                    transition: 'all 0.2s'
+                });
+                delBtn.onmouseenter = () => { delBtn.style.color = '#ff5252'; delBtn.style.borderColor = '#ff5252'; };
+                delBtn.onmouseleave = () => { delBtn.style.color = 'var(--mech-text-dim)'; delBtn.style.borderColor = 'var(--mech-border)'; };
+                delBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    pinManager.removePin(p.id);
+                };
+
+                actions.append(gotoBtn, delBtn);
+                row.append(info, actions);
+
+                row.onclick = () => pinManager.scrollToPin(p.id);
+
+                mechPinList.appendChild(row);
+            });
+
+            updateMechTabBadges();
+        };
+
+        mechPinSection.append(mechPinTools, mechPinList);
         const tokenDisplay = document.createElement('div');
         tokenDisplay.id = 'cc-token-display';
         Object.assign(tokenDisplay.style, {
@@ -2932,13 +4058,19 @@
         PLATFORMS.forEach(p => {
             const btn = document.createElement('div');
             btn.className = 'thruster-btn';
-            btn.innerHTML = `<i>${p.icon}</i> ${p.name}`;
+            const iconUrl = chrome.runtime.getURL(`images/${p.id}_${state.theme}.png`);
+            btn.innerHTML = `
+                <img src="${iconUrl}" 
+                     class="cc-platform-icon" 
+                     data-pid="${p.id}" 
+                     style="width:14px; height:14px; vertical-align:middle; object-fit:contain;">
+            `;
             btn.title = t.tooltip_transfer_to.replace('{name}', p.name);
             btn.onclick = () => handleCrossTransfer(p);
             thrusters.appendChild(btn);
         });
 
-        cargoContent.append(tools, list, tokenDisplay, thrusters);
+        cargoContent.append(mechTabBar, mechBasketSection, mechPinSection, tokenDisplay, thrusters);
         basketContainer.appendChild(cargoContent);
         suspension.appendChild(basketContainer);
 
@@ -2947,6 +4079,11 @@
 
         container.addEventListener('dragover', (e) => {
             if (e.dataTransfer.types.includes('application/cc-sort')) return;
+            if (!e.dataTransfer.types.includes('application/cc-pin')) {
+                if (state.contentPanelTab !== 'basket' && typeof switchMechTab === 'function') {
+                    switchMechTab('basket');
+                }
+            }
             e.preventDefault();
             e.stopPropagation();
             e.dataTransfer.dropEffect = 'copy';
@@ -2973,55 +4110,64 @@
             if (e.dataTransfer.types && e.dataTransfer.types.includes('application/cc-sort')) return;
             e.preventDefault();
             e.stopPropagation();
-            const files = e.dataTransfer.files;
-            if (files && files.length > 0) {
-                const MAX_FILE_SIZE = 10 * 1024 * 1024;
-                Array.from(files).forEach((file) => {
-                    if (file.size > MAX_FILE_SIZE) {
-                        showToast(`❌ File too large: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB). Max 10MB.`);
+
+            const droppedFiles = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
+            const droppedText = e.dataTransfer.getData('text/plain') || e.dataTransfer.getData('text');
+            const isManualScan = e.dataTransfer.types.includes('application/cc-scan-item');
+
+            getBasket((currentBasket) => {
+                const currentCount = currentBasket ? currentBasket.length : 0;
+
+                attemptFeatureUsage('context', () => {
+                    if (droppedFiles.length > 0) {
+                        const MAX_FILE_SIZE = 10 * 1024 * 1024;
+                        droppedFiles.forEach((file) => {
+                            if (file.size > MAX_FILE_SIZE) {
+                                showToast(`❌ File too large: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB). Max 10MB.`);
+                                return;
+                            }
+                            if ((file.type && file.type.includes('text/plain')) ||
+                                /\.(md|txt|js|py|html|css|json)$/i.test(file.name)) {
+
+                                const reader = new FileReader();
+                                reader.onload = (ev) => {
+                                    const content = (ev.target.result || '').trim();
+                                    if (!content) return;
+
+                                    basketOp({
+                                        kind: 'ADD',
+                                        item: {
+                                            text: content,
+                                            timestamp: Date.now(),
+                                            source: file.name + (curT.src_file || " (File)")
+                                        }
+                                    }, () => {
+                                        showToast("File loaded: " + file.name);
+                                        cleanUpSiteOverlays();
+                                    });
+                                };
+                                reader.readAsText(file);
+                            }
+                        });
+
                         return;
                     }
-                    if ((file.type && file.type.includes('text/plain')) ||
-                        /\.(md|txt|js|py|html|css|json)$/i.test(file.name)) {
 
-                        const reader = new FileReader();
-                        reader.onload = (ev) => {
-                            const content = (ev.target.result || '').trim();
-                            if (!content) return;
-
-                            basketOp({
-                                kind: 'ADD',
-                                item: {
-                                    text: content,
-                                    timestamp: Date.now(),
-                                    source: file.name + (curT.src_file || " (File)")
-                                }
-                            }, () => {
-                                showToast("File loaded: " + file.name);
-                                cleanUpSiteOverlays();
-                            });
-                        };
-                        reader.readAsText(file);
+                    if (droppedText && droppedText.trim().length > 0) {
+                        basketOp({
+                            kind: 'ADD',
+                            item: {
+                                text: droppedText.trim(),
+                                timestamp: Date.now(),
+                                source: window.location.hostname + (isManualScan ? curT.src_manual : curT.src_drop)
+                            }
+                        }, () => {
+                            showToast(curT.toast_basket_add || "Data Acquired 📥");
+                            updateBasketUI();
+                        });
                     }
-                });
-
-                return;
-            }
-
-            const text = e.dataTransfer.getData('text/plain');
-            if (text && text.trim().length > 0) {
-                basketOp({
-                    kind: 'ADD',
-                    item: {
-                        text: text.trim(),
-                        timestamp: Date.now(),
-                        source: window.location.hostname + curT.src_drop
-                    }
-                }, () => {
-                    showToast(curT.toast_basket_add || "Data Acquired 📥");
-                    updateBasketUI();
-                });
-            }
+                }, currentCount);
+            });
         });
 
         setTimeout(() => container.classList.add('cc-visible'), 10);
@@ -3090,6 +4236,8 @@
                     <option value="claude">Anthropic (Claude)</option>
                     <option value="gemini">Google (Gemini)</option>
                     <option value="grok">xAI (Grok)</option>
+                    <option value="deepseek">DeepSeek</option>
+                    <option value="perplexity">Perplexity</option>
                     <option value="ollama">Local (Ollama)</option>
                     <option value="lm-studio">Local (LM Studio)</option>
                 </select>
@@ -3177,9 +4325,9 @@
                     try {
                         const json = JSON.parse(ev.target.result);
                         if (json.cc_all_ai_configs) {
-                            const isZh = state.lang === 'zh';
-                            const title = isZh ? '匯入設定?' : 'Import Config?';
-                            const msg = isZh ? '這將覆蓋目前的系統設定，確定嗎?' : 'This will overwrite current system config. Proceed?';
+                            const t = LANG_DATA[state.lang];
+                            const title = t.import_confirm_title || 'Import Config?';
+                            const msg = t.import_confirm_msg || 'This will overwrite current system config. Proceed?';
                             showMainConfirmModal(title, msg, () => {
                                 chrome.storage.local.set(json, () => {
                                     state.allAiConfigs = json.cc_all_ai_configs || [];
@@ -3282,24 +4430,39 @@
 
         providerSel.addEventListener('change', async () => {
             updateUIState(false);
-            let defEp = '';
-            let defModel = MODEL_PRESETS[providerSel.value] ? MODEL_PRESETS[providerSel.value][0] : '';
-            if (providerSel.value === 'openai') defEp = 'https://api.openai.com/v1/chat/completions';
-            else if (providerSel.value === 'gemini') defEp = `https://generativelanguage.googleapis.com/v1beta/models/${defModel}:streamGenerateContent`;
-            else if (providerSel.value === 'claude') defEp = 'https://api.anthropic.com/v1/messages';
-            else if (providerSel.value === 'grok') defEp = 'https://api.x.ai/v1/chat/completions';
-            else if (providerSel.value === 'local') defEp = 'http://localhost:11434/api/chat';
+            const provider = providerSel.value;
+
+            let defModel = '';
+            if (MODEL_PRESETS[provider] && MODEL_PRESETS[provider].length > 0) {
+                defModel = MODEL_PRESETS[provider][0];
+            }
+
+            let defEp = API_ENDPOINTS[provider] || '';
+
+            if (defEp.includes('{model}')) {
+                defEp = defEp.replace('{model}', defModel);
+            }
+
+            if (!defEp) {
+                if (provider === 'local' || provider === 'ollama') {
+                    defEp = 'http://localhost:11434/api/chat';
+                } else if (provider === 'lm-studio') {
+                    defEp = 'http://localhost:1234/v1/chat/completions';
+                }
+            }
 
             endpointInput.value = defEp;
             modelInput.value = defModel;
-            await updateModelList(providerSel.value);
+            await updateModelList(provider);
         });
 
         modelSelect.addEventListener('change', () => {
             if (modelSelect.value) {
                 modelInput.value = modelSelect.value;
-                if (providerSel.value === 'gemini') {
-                    endpointInput.value = `https://generativelanguage.googleapis.com/v1beta/models/${modelSelect.value}:streamGenerateContent`;
+                const provider = providerSel.value;
+                const templateEp = API_ENDPOINTS[provider];
+                if (templateEp && templateEp.includes('{model}')) {
+                    endpointInput.value = templateEp.replace('{model}', modelSelect.value);
                 }
             }
         });
@@ -3390,12 +4553,18 @@
     function toggleUIMode(mode) {
         const oldPanel = document.getElementById('cc-panel') || document.getElementById('cc-robot-panel');
         let lastRect = null;
+        let wasExpanded = false;
 
         let currentPrompt = "";
         if (prefixInput) currentPrompt = prefixInput.value;
 
         if (oldPanel) {
             lastRect = oldPanel.getBoundingClientRect();
+            if (state.uiMode === 'standard') {
+                wasExpanded = oldPanel.classList.contains('expanded');
+            } else {
+                wasExpanded = oldPanel.classList.contains('deployed');
+            }
             oldPanel.remove();
         }
         document.getElementById('cc-tooltip')?.remove();
@@ -3429,23 +4598,36 @@
             }, 10);
 
             updateBasketUI((basket) => {
-                const hasItems = basket && basket.length > 0;
-
-                if (state.uiMode === 'standard' && hasItems) {
+                if (state.uiMode === 'standard') {
                     const stdPanel = document.getElementById('cc-panel');
                     if (stdPanel) {
-                        stdPanel.classList.add('expanded');
-                        toggleBasketPreview(true);
+                        if (wasExpanded) {
+                            stdPanel.classList.add('expanded');
+                            toggleBasketPreview(true);
+                        }
+                        if (state.contentPanelTab === 'pins') {
+                            document.getElementById('cc-tab-pins')?.click();
+                        } else {
+                            document.getElementById('cc-tab-basket')?.click();
+                        }
                     }
                 }
-                else if (state.uiMode === 'robot' && hasItems) {
+                else if (state.uiMode === 'robot') {
                     const robotPanel = document.getElementById('cc-robot-panel');
-                    if (robotPanel && !robotPanel.classList.contains('deployed')) {
-                        robotPanel.classList.add('deployed');
-                        updateRobotBasketText(basket.length);
+                    if (robotPanel) {
+                        if (wasExpanded) {
+                            robotPanel.classList.add('deployed');
+                            updateRobotBasketText(basket ? basket.length : 0);
+                        }
+                        if (state.contentPanelTab === 'pins') {
+                            document.getElementById('mech-tab-pins')?.click();
+                        } else {
+                            document.getElementById('mech-tab-basket')?.click();
+                        }
                     }
                 }
             });
+            pinManager._notifyChange();
         }
     }
 
@@ -3641,9 +4823,9 @@
                     try {
                         const json = JSON.parse(ev.target.result);
                         if (json.cc_all_ai_configs) {
-                            const isZh = state.lang === 'zh';
-                            const title = isZh ? '匯入設定?' : 'Import Config?';
-                            const msg = isZh ? '這將覆蓋目前的設定，確定嗎?' : 'This will overwrite current configs. Proceed?';
+                            const t = LANG_DATA[state.lang];
+                            const title = t.import_confirm_title;
+                            const msg = t.import_confirm_msg;
                             showMainConfirmModal(title, msg, () => {
                                 chrome.storage.local.set(json, () => {
                                     state.allAiConfigs = json.cc_all_ai_configs || [];
@@ -3742,34 +4924,46 @@
 
         providerSel.addEventListener('change', async () => {
             updateUIState();
-            let defEp = '';
-            let defModel = MODEL_PRESETS[providerSel.value] ? MODEL_PRESETS[providerSel.value][0] : '';
+            const provider = providerSel.value;
+            let defModel = '';
+            if (MODEL_PRESETS[provider] && MODEL_PRESETS[provider].length > 0) {
+                defModel = MODEL_PRESETS[provider][0];
+            }
 
-            if (providerSel.value === 'openai') defEp = 'https://api.openai.com/v1/chat/completions';
-            else if (providerSel.value === 'gemini') defEp = `https://generativelanguage.googleapis.com/v1beta/models/${defModel}:streamGenerateContent`;
-            else if (providerSel.value === 'claude') defEp = 'https://api.anthropic.com/v1/messages';
-            else if (providerSel.value === 'grok') defEp = 'https://api.x.ai/v1/chat/completions';
-            else if (providerSel.value === 'ollama') defEp = 'http://localhost:11434';
-            else if (providerSel.value === 'lm-studio') defEp = 'http://localhost:1234';
+            let defEp = API_ENDPOINTS[provider] || '';
+
+            if (defEp.includes('{model}')) {
+                defEp = defEp.replace('{model}', defModel);
+            }
+
+            if (!defEp) {
+                if (provider === 'ollama') defEp = 'http://localhost:11434/api/chat';
+                else if (provider === 'lm-studio') defEp = 'http://localhost:1234/v1/chat/completions';
+            }
 
             epInput.value = defEp;
             modelInput.value = defModel;
-            await updateModelList(providerSel.value);
+            await updateModelList(provider);
         });
 
         modelSelect.addEventListener('change', () => {
             if (modelSelect.value) {
                 modelInput.value = modelSelect.value;
-                if (providerSel.value === 'gemini') {
-                    epInput.value = `https://generativelanguage.googleapis.com/v1beta/models/${modelSelect.value}:streamGenerateContent`;
+                const template = API_ENDPOINTS[providerSel.value];
+                if (template && template.includes('{model}')) {
+                    epInput.value = template.replace('{model}', modelSelect.value);
                 }
                 flashInput(modelInput);
             }
         });
 
         modelInput.oninput = () => {
-            if (providerSel.value === 'gemini' && modelInput.value.trim()) {
-                epInput.value = `https://generativelanguage.googleapis.com/v1beta/models/${modelInput.value.trim()}:streamGenerateContent`;
+            const provider = providerSel.value;
+            const val = modelInput.value.trim();
+            const template = API_ENDPOINTS[provider];
+
+            if (val && template && template.includes('{model}')) {
+                epInput.value = template.replace('{model}', val);
             }
         };
 
@@ -4021,6 +5215,10 @@
             if (span) span.innerText = t.ai_response_tab;
         }
 
+        if (pinManager && typeof pinManager._notifyChange === 'function') {
+            pinManager._notifyChange();
+        }
+
         const drone = document.getElementById('cc-drone-fab');
         if (drone) {
             drone.title = t.drone_title;
@@ -4081,35 +5279,79 @@
 
         const stdPanel = document.getElementById('cc-panel');
         if (stdPanel) {
+
+
+            const btnSelectAll = document.getElementById('cc-btn-select-all');
+            if (btnSelectAll) {
+                btnSelectAll.title = t.btn_select_all;
+            }
+
+            const btnUnselectAll = document.getElementById('cc-btn-unselect-all');
+            if (btnUnselectAll) {
+                btnUnselectAll.title = t.btn_unselect_all;
+            }
+
+            const btnCopy = document.getElementById('cc-btn-copy');
+            if (btnCopy) {
+                btnCopy.title = t.btn_copy;
+            }
+
             if (prefixLabel) prefixLabel.innerText = t.label_prefix;
             if (prefixInput) prefixInput.placeholder = t.placeholder;
-            if (btnSelectAll) btnSelectAll.innerText = t.btn_select_all;
-            if (btnUnselectAll) btnUnselectAll.innerText = t.btn_unselect_all;
-            if (btnDl) btnDl.innerText = t.btn_dl;
-            if (btnCopy) btnCopy.innerText = t.btn_copy;
 
-            if (btnScan) {
-                btnScan.textContent = t.btn_scan;
-            }
             const btnAiConfig = document.getElementById('cc-btn-ai-config');
             if (btnAiConfig) {
-                btnAiConfig.textContent = t.btn_quick_settings;
                 btnAiConfig.title = t.ai_setting_tab;
             }
-            if (basketLabel) basketLabel.innerText = t.label_basket;
-            if (btnAddBasket) btnAddBasket.innerText = t.btn_add_basket;
-            if (btnPasteBasket) btnPasteBasket.innerText = t.btn_paste_basket;
-            if (btnClearBasket) {
-                btnClearBasket.innerText = t.btn_clear_basket;
-                btnClearBasket.title = t.btn_clear_basket;
-            }
-            if (btnSummary) btnSummary.innerText = t.btn_summary;
-            if (btnNewDoc) btnNewDoc.innerText = t.btn_new_doc;
-            if (transferLabel) transferLabel.innerText = t.label_transfer;
+
+            const btnPaint = document.getElementById('cc-btn-paint');
             if (btnPaint) {
-                btnPaint.innerText = t.btn_paint;
                 btnPaint.title = t.paint_tooltip + t.hint_shortcut_paint;
             }
+
+            const btnScan = document.getElementById('cc-btn-scan');
+            if (btnScan) {
+                btnScan.title = t.btn_scan;
+            }
+
+            const btnPin = document.getElementById('cc-btn-pin');
+            if (btnPin) {
+                btnPin.title = t.btn_ping;
+            }
+            const btnQr = document.getElementById('cc-btn-qr');
+            if (btnQr) {
+                btnQr.title = t.btn_qrcode;
+            }
+
+            const btnDl = document.getElementById('cc-btn-dl');
+            if (btnDl) {
+                btnDl.title = t.btn_dl;
+            }
+
+            if (basketLabel) basketLabel.innerText = t.label_basket;
+
+            const btnAddBasket = document.getElementById('cc-btn-add-basket');
+            if (btnAddBasket) {
+                btnAddBasket.title = t.btn_add_basket;
+            }
+            const btnPasteBasket = document.getElementById('cc-btn-paste-basket');
+            if (btnPasteBasket) {
+                btnPasteBasket.title = t.btn_paste_basket;
+            }
+            const btnNewDoc = document.getElementById('cc-btn-new-doc');
+            if (btnNewDoc) {
+                btnNewDoc.title = t.btn_new_doc;
+            }
+
+            const btnClearBasket = document.getElementById('cc-btn-clear-basket');
+            if (btnClearBasket) {
+                btnClearBasket.title = t.btn_clear_basket;
+            }
+
+            const btnSummary = document.getElementById('cc-btn-summary');
+            if (btnSummary) btnSummary.innerText = t.btn_summary;
+            if (transferLabel) transferLabel.innerText = t.label_transfer;
+
 
             const langBtn = document.getElementById('cc-btn-lang');
             if (langBtn) langBtn.title = t.btn_lang_title + t.hint_shortcut_lang;
@@ -4137,6 +5379,39 @@
 
         const robotPanel = document.getElementById('cc-robot-panel');
         if (robotPanel) {
+
+            const tabBasketBtn = document.getElementById('mech-tab-basket');
+            if (tabBasketBtn) {
+                const labelSpan = tabBasketBtn.querySelector('span:not(.mech-tab-badge)');
+                if (labelSpan) labelSpan.innerText = 'CARGO';
+            }
+
+            const tabPinsBtn = document.getElementById('mech-tab-pins');
+            if (tabPinsBtn) {
+                const labelSpan = tabPinsBtn.querySelector('span:not(.mech-tab-badge)');
+                if (labelSpan) labelSpan.innerText = 'PINS';
+            }
+
+            const btnPinClear = document.getElementById('mech-pin-clear');
+            if (btnPinClear) {
+                btnPinClear.innerText = '🗑️';
+            }
+
+            if (typeof renderMechPinPanel === 'function') {
+                renderMechPinPanel();
+            }
+
+            if (typeof renderBasketPreview === 'function' && typeof basket !== 'undefined') {
+                const previewList = document.getElementById('mech-basket-list');
+                if (previewList) {
+                    if (basket.length === 0) {
+                        previewList.innerHTML = `<div style="text-align:center; color:var(--mech-text-dim); padding:15px; font-size:11px; letter-spacing:1px; border:1px dashed var(--mech-border); border-radius:4px;">${t.emptyMsg || t.basket_status_empty || 'EMPTY'}</div>`;
+                    } else {
+                        renderBasketPreview(basket);
+                    }
+                }
+            }
+
             const btnSel = document.getElementById('mech-btn-select-all');
             if (btnSel) btnSel.title = t.btn_select_all;
 
@@ -4161,8 +5436,11 @@
             const btnPnt = document.getElementById('mech-btn-paint');
             if (btnPnt) btnPnt.title = t.btn_paint + t.hint_shortcut_paint;
 
-            const btnCpy = document.getElementById('mech-btn-copy');
-            if (btnCpy) btnCpy.title = t.btn_copy;
+            const btnPinRobot = document.getElementById('mech-btn-pin');
+            if (btnPinRobot) btnPinRobot.title = t.btn_ping;
+
+            const btnPasteMech = document.getElementById('mech-btn-paste-main');
+            if (btnPasteMech) btnPasteMech.title = t.btn_paste_basket;
 
             const btnDload = document.getElementById('mech-btn-download');
             if (btnDload) btnDload.title = t.btn_dl;
@@ -4210,16 +5488,20 @@
             if (aiTrig) aiTrig.title = t.btn_summary;
 
             const bAdd = document.getElementById('mech-basket-add');
-            if (bAdd) bAdd.innerText = t.btn_add_basket;
+            if (bAdd) bAdd.innerText = '🧺';
+            if (bAdd) bAdd.title = t.btn_add_basket;
 
             const bPaste = document.getElementById('mech-basket-paste');
-            if (bPaste) bPaste.innerText = t.btn_paste_basket;
+            if (bPaste) bPaste.innerText = '🪄';
+            if (bPaste) bPaste.title = t.btn_paste_basket;
 
             const bClear = document.getElementById('mech-basket-clear');
-            if (bClear) bClear.innerText = t.btn_clear_basket;
+            if (bClear) bClear.innerText = '🗑️';
+            if (bClear) bClear.title = t.btn_clear_basket;
 
             const bNew = document.getElementById('mech-basket-new');
-            if (bNew) bNew.innerText = t.btn_new_doc || "New Doc";
+            if (bNew) bNew.innerText = '🖍️';
+            if (bNew) bNew.title = t.btn_new_doc;
             updateRobotBasketText();
         }
 
@@ -4375,6 +5657,30 @@
 
         const mTitle = modal.querySelector('.cc-modal-header span');
         if (mTitle && !mTitle.id) mTitle.innerText = isSingle ? t.mm_title_single : t.mm_title_multi;
+
+        const tmplSelect = document.getElementById('template-select');
+        if (tmplSelect) {
+            const currentVal = tmplSelect.value;
+            const templates = getWorkflowTemplates();
+            let html = '<option value="">-- Select --</option>';
+            Object.entries(templates).forEach(([k, v]) => {
+                html += `<option value="${k}" ${k === currentVal ? 'selected' : ''}>${v.name}</option>`;
+            });
+            tmplSelect.innerHTML = html;
+        }
+
+        if (state.pipWindow && state.pipWindow.document) {
+            const pipSelect = state.pipWindow.document.getElementById('pip-template-select');
+            if (pipSelect) {
+                const currentVal = pipSelect.value;
+                const templates = getWorkflowTemplates();
+                let html = '<option value="">🧩 Load Template</option>';
+                Object.entries(templates).forEach(([k, v]) => {
+                    html += `<option value="${k}" ${k === currentVal ? 'selected' : ''}>${v.name}</option>`;
+                });
+                pipSelect.innerHTML = html;
+            }
+        }
     }
 
     function performScan() {
@@ -4393,6 +5699,17 @@
             if (state.config.ignore && el.closest(state.config.ignore)) {
                 return;
             }
+
+            let parent = el.parentElement;
+            let isNested = false;
+            while (parent) {
+                if (parent.dataset && parent.dataset.ccListening === 'true') {
+                    isNested = true;
+                    break;
+                }
+                parent = parent.parentElement;
+            }
+            if (isNested) return;
 
             const style = window.getComputedStyle(el);
             if (style.position === 'static') {
@@ -4426,6 +5743,7 @@
                 const cleanText = convertToMarkdown(el);
                 e.dataTransfer.setData('text/plain', cleanText);
                 e.dataTransfer.setData('text', cleanText);
+                e.dataTransfer.setData('application/cc-scan-item', 'true');
                 e.dataTransfer.effectAllowed = 'copy';
                 chrome.storage?.local?.set({
                     cc_last_drag_text: cleanText,
@@ -4623,33 +5941,51 @@
     function constructFinalContent(pageSelection, basketItems) {
         const t = LANG_DATA[state.lang];
         const prefix = document.getElementById('cc-prefix-input')?.value || "";
-        let finalContent = "";
+        let parts = [];
 
-        if (prefix) {
-            finalContent += prefix + "\n\n====================\n\n";
+        if (prefix && prefix.trim()) {
+            parts.push(prefix.trim());
+            parts.push("====================");
         }
 
-        if (pageSelection) {
-            finalContent += pageSelection + "\n\n";
+        if (pageSelection && pageSelection.trim()) {
+            parts.push(pageSelection.trim());
         }
 
         if (basketItems && basketItems.length > 0) {
-            if (pageSelection) {
-                finalContent += t.prompt_sep_basket + "\n";
+            if (pageSelection && pageSelection.trim()) {
+                parts.push(t.prompt_sep_basket.trim());
             }
 
             const basketText = basketItems.map((item, idx) => {
-                const header = t.prompt_item_prefix
-                    .replace('{n}', idx + 1)
-                    .replace('{source}', item.source);
-                return `${header}\n${item.text}`;
-            }).join("\n\n--------------------\n\n");
+                const itemText = (item.text || "").trim();
+                if (state.includeSource && item.source) {
+                    const header = t.prompt_item_prefix
+                        .replace('{n}', idx + 1)
+                        .replace('{source}', item.source);
+                    return `${header}\n${itemText}`;
+                } else {
+                    return itemText;
+                }
+            }).join("\n--------------------\n");
 
-            finalContent += basketText;
+            parts.push(basketText);
         }
 
-        finalContent += `\n\n====================\n${t.prompt_end}`;
-        return finalContent;
+        return parts.join("\n").trim() + "\n";
+    }
+
+    function formatDragText(items, includeSource = null) {
+        const useSource = includeSource !== null ? includeSource : state.includeSource;
+        if (!Array.isArray(items)) items = [items];
+
+        return items.map(item => {
+            const itemText = (item.text || "").trim();
+            if (useSource && item.source) {
+                return `[Source: ${item.source}]\n${itemText}`;
+            }
+            return itemText;
+        }).join("\n--------------------\n").trim();
     }
 
     function resolveContentToExport(callback) {
@@ -4740,7 +6076,7 @@
     function handleDownload() {
         resolveContentToExport((finalContent) => {
             if (!finalContent) return;
-            const defaultName = 'context-carry-' + new Date().toISOString().slice(0, 10);
+            const defaultName = 'contextdrone-' + new Date().toISOString().slice(0, 10);
             showUniversalExportModal(window, finalContent, defaultName);
         });
     }
@@ -4771,7 +6107,7 @@
     function basketOp(op, cb) {
         chrome.runtime.sendMessage({ action: "BASKET_OP", op }, (res) => {
             if (chrome.runtime.lastError) {
-                console.warn('Context-Carry: BASKET_OP failed', chrome.runtime.lastError);
+                console.warn('ContextDrone: BASKET_OP failed', chrome.runtime.lastError);
                 cb && cb({ success: false, error: chrome.runtime.lastError.message });
                 return;
             }
@@ -4810,14 +6146,17 @@
                     } else {
                         basketStatus.innerText = t.basket_status.replace('{n}', count);
                         basketStatus.style.color = '#4CAF50';
-                        if (state.isPreviewOpen && basketPreviewList) {
+                        if (state.isPreviewOpen && basketPreviewList && state.contentPanelTab === 'basket') {
                             basketPreviewList.style.display = 'block';
                             renderBasketPreview(currentBasket);
                         }
                     }
                 }
+                if (typeof updateStdPasteButton === 'function') updateStdPasteButton();
+                if (typeof updateContentTabBadges === 'function') updateContentTabBadges();
             } else if (state.uiMode === 'robot') {
                 updateRobotBasketText(count);
+                if (typeof updateMechTabBadges === 'function') updateMechTabBadges();
                 if (basketPreviewList) {
                     basketPreviewList.style.display = 'block';
                     if (count === 0) {
@@ -4826,6 +6165,7 @@
                         renderBasketPreview(currentBasket);
                     }
                 }
+                if (typeof updateMechPasteButton === 'function') updateMechPasteButton();
             }
 
             if (state.basketListeners) {
@@ -4857,7 +6197,9 @@
         }
 
         state.isPreviewOpen = true;
-        basketPreviewList.style.display = 'block';
+        if (state.contentPanelTab === 'basket') {
+            basketPreviewList.style.display = 'block';
+        }
 
         const panel = document.getElementById('cc-panel');
         if (panel && panel.classList.contains('cc-visible')) {
@@ -4876,24 +6218,76 @@
         const prefixEl = document.getElementById('cc-prefix-input');
         const currentPrefix = prefixEl ? prefixEl.value : "";
         let isDraggingRow = false;
+        basket.forEach(item => {
+            if (item && item.id && state.basketSelectionState[item.id] === undefined) {
+                state.basketSelectionState[item.id] = false;
+            }
+        });
+
+        const selectedCount = basket.filter(it => it && it.id && state.basketSelectionState[it.id]).length;
+        const isAllSelected = basket.length > 0 && selectedCount === basket.length;
+        const headerRow = document.createElement('div');
+        Object.assign(headerRow.style, {
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '6px',
+            padding: '4px 0'
+        });
+
+        const selectAllBtn = document.createElement('button');
+        selectAllBtn.className = 'cc-select-all-btn';
+        selectAllBtn.innerHTML = isAllSelected ? '☑️ ' + (t.btn_unselect_all || 'Unselect All') : '☐ ' + (t.btn_select_all || 'Select All');
+        Object.assign(selectAllBtn.style, {
+            background: 'transparent',
+            border: '1px solid #555',
+            borderRadius: '4px',
+            color: '#aaa',
+            fontSize: '10px',
+            padding: '4px 8px',
+            cursor: 'pointer',
+            transition: 'all 0.2s'
+        });
+        selectAllBtn.onmouseenter = () => { selectAllBtn.style.borderColor = '#00d2ff'; selectAllBtn.style.color = '#00d2ff'; };
+        selectAllBtn.onmouseleave = () => { selectAllBtn.style.borderColor = '#555'; selectAllBtn.style.color = '#aaa'; };
+        selectAllBtn.onclick = () => {
+            const targetState = !isAllSelected;
+            basket.forEach(item => {
+                if (item && item.id) state.basketSelectionState[item.id] = targetState;
+            });
+            renderBasketPreview(basket);
+            updateStdPasteButton();
+        };
+
         const hint = document.createElement('div');
-        hint.innerText = t.preview_drag_hint;
-        Object.assign(hint.style, { fontSize: '10px', color: '#888', textAlign: 'right', marginBottom: '6px' });
-        basketPreviewList.append(hint);
+        hint.innerText = selectedCount > 0 ? `${selectedCount} selected` : t.preview_drag_hint;
+        Object.assign(hint.style, { fontSize: '10px', color: selectedCount > 0 ? '#4CAF50' : '#888' });
+
+        headerRow.append(selectAllBtn, hint);
+        basketPreviewList.append(headerRow);
 
         basket.forEach((item, index) => {
             const row = document.createElement('div');
-            row.className = 'cc-basket-item';
+            row.className = 'cc-basket-item' + (state.basketSelectionState[item.id] ? ' selected' : '');
             row.draggable = true;
             row.dataset.index = index;
             row.dataset.id = item.id;
 
+            const isSelected = state.basketSelectionState[item.id];
+
             Object.assign(row.style, {
-                background: '#333', padding: '8px', borderRadius: '6px', fontSize: '11px',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                cursor: 'grab', border: '2px solid transparent',
-                position: 'relative', marginBottom: '4px',
-                transition: 'transform 0.1s'
+                background: isSelected ? 'rgba(0, 210, 255, 0.15)' : '#333',
+                padding: '8px',
+                borderRadius: '6px',
+                fontSize: '11px',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                cursor: 'grab',
+                border: isSelected ? '2px solid var(--cc-primary, #00d2ff)' : '2px solid transparent',
+                position: 'relative',
+                marginBottom: '4px',
+                transition: 'all 0.15s'
             });
 
             row.onmouseenter = (e) => {
@@ -4902,7 +6296,7 @@
                 if (currentPrefix && fullClean.startsWith(currentPrefix)) fullClean = fullClean.replace(currentPrefix, '');
                 fullClean = fullClean.replace(/={5,}/g, '').replace(/--- Fragment ---/g, '').replace(/\[END OF CONTEXT\]/g, '').trim();
                 if (fullClean.length > 500) fullClean = fullClean.substring(0, 500) + "\n\n(......)";
-                tooltip.innerText = `[Source: ${item.source}]\n\n${fullClean}`;
+                tooltip.innerText = `[Source: ${item.source}]\n${fullClean}`;
                 tooltip.style.display = 'block';
                 updateTooltipPosition(e);
             };
@@ -4911,25 +6305,46 @@
             row.ondragstart = (e) => {
                 e.stopPropagation();
                 isDraggingRow = true;
-                draggingId = item.id;
-                e.dataTransfer.setData('text/plain', item.text);
-                e.dataTransfer.setData('text', item.text);
-                e.dataTransfer.setData('application/cc-id', item.id);
-                e.dataTransfer.setData('application/cc-sort', 'true');
                 e.dataTransfer.effectAllowed = 'copyMove';
+                const selectedIds = basket
+                    .map(it => it && it.id)
+                    .filter(itemId => itemId && state.basketSelectionState[itemId]);
 
-                row.style.opacity = '0.5';
+                let dragText = '';
+                let draggedIds = [];
+                if (state.basketSelectionState[item.id] && selectedIds.length > 1) {
+                    const selectedItems = selectedIds
+                        .map(selectedId => basket.find(it => it && it.id === selectedId))
+                        .filter(Boolean);
+
+                    dragText = formatDragText(selectedItems);
+                    draggedIds = selectedIds;
+                    basketPreviewList.querySelectorAll('.cc-basket-item.selected').forEach(el => {
+                        el.style.opacity = '0.5';
+                    });
+                } else {
+                    dragText = formatDragText(item);
+                    draggedIds = [item.id];
+                    row.style.opacity = '0.5';
+                }
+
+                draggingId = item.id;
+                e.dataTransfer.setData('text/plain', dragText);
+                e.dataTransfer.setData('text', dragText);
+                e.dataTransfer.setData('application/cc-id', item.id);
+                e.dataTransfer.setData('application/cc-ids', JSON.stringify(draggedIds));
+                e.dataTransfer.setData('application/cc-sort', 'true');
                 if (tooltip) tooltip.style.display = 'none';
             };
 
             row.ondragend = (e) => {
                 draggingId = null;
-                row.style.opacity = '1';
-                setTimeout(() => { isDraggingRow = false; }, 200);
-                document.querySelectorAll('.cc-basket-item').forEach(el => {
+                basketPreviewList.querySelectorAll('.cc-basket-item').forEach(el => {
+                    el.style.opacity = '1';
                     el.style.borderTopColor = 'transparent';
                     el.style.borderBottomColor = 'transparent';
                 });
+                setTimeout(() => { isDraggingRow = false; }, 200);
 
                 if (window.location.hostname.includes('claude.ai')) {
                     const leaveEvent = new DragEvent('dragleave', {
@@ -4985,8 +6400,10 @@
             };
 
             row.ondragleave = (e) => {
-                row.style.borderTopColor = 'transparent';
-                row.style.borderBottomColor = 'transparent';
+                if (!state.basketSelectionState[item.id]) {
+                    row.style.borderTopColor = 'transparent';
+                    row.style.borderBottomColor = 'transparent';
+                }
             };
 
             row.ondrop = (e) => {
@@ -5014,15 +6431,21 @@
             row.onclick = (e) => {
                 if (isDraggingRow) return;
                 if (e.target.closest('button')) return;
+                if (e.target.closest('.cc-check-circle')) return;
+                if (e.detail === 2) {
+                    showEditorModal("Edit Item", item.text, (newText) => {
+                        const id = item.id || row.dataset.id;
+                        if (!id) return;
 
-                showEditorModal("Edit Item", item.text, (newText) => {
-                    const id = item.id || row.dataset.id;
-                    if (!id) return;
-
-                    updateBasketItemText(id, newText, () => {
-                        showToast("Content updated ✨");
+                        updateBasketItemText(id, newText, () => {
+                            showToast("Content updated ✨");
+                        });
                     });
-                });
+                } else {
+                    state.basketSelectionState[item.id] = !state.basketSelectionState[item.id];
+                    renderBasketPreview(basket);
+                    updateStdPasteButton();
+                }
             };
             let cleanText = item.text;
             if (currentPrefix && cleanText.startsWith(currentPrefix)) cleanText = cleanText.replace(currentPrefix, '');
@@ -5030,9 +6453,33 @@
             let snippet = cleanText.substring(0, 50).replace(/[\r\n]+/g, ' ');
             if (cleanText.length > 50) snippet += '...';
             if (snippet.length === 0) snippet = "(System Prompt Only)";
+            const checkCircle = document.createElement('div');
+            checkCircle.className = 'cc-check-circle';
+            Object.assign(checkCircle.style, {
+                width: '18px',
+                height: '18px',
+                borderRadius: '50%',
+                border: isSelected ? '2px solid var(--cc-primary, #00d2ff)' : '2px solid #555',
+                background: isSelected ? 'var(--cc-primary, #00d2ff)' : 'transparent',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginRight: '8px',
+                cursor: 'pointer',
+                flexShrink: 0,
+                transition: 'all 0.15s'
+            });
+            checkCircle.innerHTML = isSelected ? '<span style="color:#000;font-size:10px;font-weight:bold;">✓</span>' : '';
+            checkCircle.onclick = (e) => {
+                e.stopPropagation();
+                state.basketSelectionState[item.id] = !state.basketSelectionState[item.id];
+                renderBasketPreview(basket);
+                updateStdPasteButton();
+            };
 
             const info = document.createElement('div');
             info.style.overflow = 'hidden';
+            info.style.flex = '1';
             info.style.pointerEvents = 'none';
             const lineSource = document.createElement('div');
             lineSource.style.cssText = "color:#aaa; font-size:9px; font-weight:700; margin-bottom:2px;";
@@ -5060,12 +6507,54 @@
                     tooltip.style.display = 'none';
                 }
                 row.classList.add('cc-deleting');
+                delete state.basketSelectionState[item.id];
                 setTimeout(() => handleDeleteSingleItem(item.id || row.dataset.id, row), 300);
             };
 
-            row.append(info, delBtn);
+            row.append(checkCircle, info, delBtn);
             basketPreviewList.append(row);
         });
+        if (typeof updateContentTabBadges === 'function') {
+            updateContentTabBadges();
+        }
+    }
+
+    function updateStdPasteButton() {
+        const pasteBtn = document.getElementById('cc-btn-paste-main');
+        if (!pasteBtn) return;
+
+        const selectedCount = basket.filter(it => it && it.id && state.basketSelectionState[it.id]).length;
+        const t = LANG_DATA[state.lang];
+
+        if (selectedCount > 0) {
+            pasteBtn.innerHTML = `🪄(${selectedCount})`;
+            pasteBtn.style.opacity = '1';
+            pasteBtn.title = (t.btn_paste_selected || 'Paste {n} selected').replace('{n}', selectedCount);
+        } else {
+            pasteBtn.innerHTML = '🪄';
+            pasteBtn.style.opacity = '0.6';
+            pasteBtn.title = t.btn_paste_basket || 'Paste basket';
+        }
+    }
+
+    function updateMechPasteButton() {
+        const pasteBtn = document.getElementById('mech-btn-paste-main');
+        if (!pasteBtn) return;
+
+        const selectedCount = basket.filter(it => it && it.id && state.basketSelectionState[it.id]).length;
+        const t = LANG_DATA[state.lang];
+
+        if (selectedCount > 0) {
+            pasteBtn.innerHTML = `🪄(${selectedCount})`;
+            pasteBtn.style.background = 'var(--mech-accent, #00d2ff)';
+            pasteBtn.style.color = '#000';
+            pasteBtn.title = (t.btn_paste_selected || 'Paste {n} selected').replace('{n}', selectedCount);
+        } else {
+            pasteBtn.innerHTML = '🪄';
+            pasteBtn.style.background = '';
+            pasteBtn.style.color = '';
+            pasteBtn.title = t.btn_paste_basket || 'Paste basket';
+        }
     }
 
     function updateTooltipPosition(e) {
@@ -5131,22 +6620,31 @@
         const t = LANG_DATA[state.lang];
         if (!text) { showToast(t.alert_no_selection); return; }
 
-        basketOp({
-            kind: 'ADD',
-            item: {
-                text: text,
-                timestamp: Date.now(),
-                source: window.location.hostname
-            }
-        }, () => {
-            showToast(t.toast_basket_add);
-            handleUnselectAll();
+        getBasket((currentBasket) => {
+            const currentCount = currentBasket ? currentBasket.length : 0;
+
+            attemptFeatureUsage('context', () => {
+
+                basketOp({
+                    kind: 'ADD',
+                    item: {
+                        text: text,
+                        timestamp: Date.now(),
+                        source: window.location.hostname
+                    }
+                }, () => {
+                    showToast(t.toast_basket_add);
+                    handleUnselectAll();
+                });
+
+            }, currentCount);
         });
     }
 
     function handleClearBasket() {
         basketOp({ kind: 'CLEAR' }, () => {
             const t = LANG_DATA[state.lang];
+            state.basketSelectionState = {}
             showToast(t.toast_basket_clear);
             updateBasketUI();
         });
@@ -5155,7 +6653,7 @@
     function handlePasteBasket() {
         const t = LANG_DATA[state.lang];
         getBasket((basket) => {
-            if (basket.length === 0) { showToast("Basket is empty!"); return; }
+            if (basket.length === 0) { showToast(t.basket_status_empty); return; }
 
             const inputEl = document.querySelector(config ? config.inputSelector : 'textarea, input[type="text"], [contenteditable="true"]');
 
@@ -5164,7 +6662,19 @@
                 return;
             }
 
-            const finalContent = constructFinalContent(null, basket);
+            const selectedIds = basket.map(it => it && it.id).filter(id => id && state.basketSelectionState[id]);
+            let itemsToPaste = basket;
+
+            if (selectedIds.length > 0) {
+                itemsToPaste = selectedIds.map(id => basket.find(it => it && it.id === id)).filter(Boolean);
+            }
+
+            if (itemsToPaste.length === 0) {
+                showToast(t.toast_select_first || "Please select items to paste");
+                return;
+            }
+
+            const finalContent = constructFinalContent(null, itemsToPaste);
 
             let limit = 100000;
             let platformName = 'General LLM Page';
@@ -5297,13 +6807,17 @@
         const isGemini = host === 'gemini.google.com';
         const isGrok = host === 'x.ai' || host === 'www.x.ai' || host === 'grok.com' || host === 'www.grok.com';
         const isClaude = host === 'claude.ai' || host === 'www.claude.ai';
+        const isDeepSeek = host === 'chat.deepseek.com';
+        const isPerplexity = host === 'www.perplexity.ai';
 
-        if (!isGemini && !isGrok && !isClaude) return;
+        if (!isGemini && !isGrok && !isClaude && !isDeepSeek && !isPerplexity) return;
 
         const flag =
             isGemini ? '__ccDropShimGemini' :
                 isGrok ? '__ccDropShimGrok' :
-                    '__ccDropShimClaude';
+                    isDeepSeek ? '__ccDropShimDeepSeek' :
+                        isPerplexity ? '__ccDropShimPplx' :
+                            '__ccDropShimClaude';
 
         if (window[flag]) return;
         window[flag] = true;
@@ -5326,6 +6840,12 @@
             }
             if (isGrok) {
                 return !!t.closest('form, textarea, [contenteditable="true"], [role="textbox"], footer, .chat, .composer, .prompt');
+            }
+            if (isDeepSeek) {
+                return !!t.closest('#chat-input, form, .ds-input-area');
+            }
+            if (isPerplexity) {
+                return !!t.closest('textarea, div[class*="input-wrapper"], footer');
             }
             return !!t.closest('[data-testid="chat-input-grid-container"], [data-testid="chat-input"], fieldset, main');
         };
@@ -5370,7 +6890,7 @@
 
             autoFillInput(editor, text);
 
-            showToast(LANG_DATA[state.lang]?.toast_autofill || "Auto-filled by Context-Carry.");
+            showToast(LANG_DATA[state.lang]?.toast_autofill || "Auto-filled by ContextDrone.");
             cleanUpSiteOverlays();
         }, true);
     }
@@ -5721,7 +7241,7 @@
                 if (p) p.style.opacity = '0.2';
                 if (drone) drone.style.opacity = '0.2';
             }
-            // Alt+L: toggle language between zh and en
+            // Alt+L: toggle language
             if (key === 'KeyL') {
                 e.preventDefault();
 
@@ -6133,6 +7653,42 @@
        9. AI Drawer Logic & Helpers (New Integrated UI)
     ========================================= */
 
+    function getWorkflowTemplates() {
+        const t = LANG_DATA[state.lang];
+
+        return {
+            'clean': {
+                name: t.clean,
+                nodes: []
+            },
+            'summary_keywords': {
+                name: t.summary_name,
+                nodes: [
+                    { id: 1, x: 50, y: 100, title: t.summary_node1, context: t.summary_ctx1 },
+                    { id: 2, x: 400, y: 100, title: t.summary_node2, context: t.summary_ctx2 }
+                ],
+                connections: [{ from: 1, to: 2 }]
+            },
+            'translator_polish': {
+                name: t.trans_name,
+                nodes: [
+                    { id: 1, x: 50, y: 100, title: t.trans_node1, context: t.trans_ctx1 },
+                    { id: 2, x: 400, y: 100, title: t.trans_node2, context: t.trans_ctx2 }
+                ],
+                connections: [{ from: 1, to: 2 }]
+            },
+            'code_review': {
+                name: t.review_name,
+                nodes: [
+                    { id: 1, x: 50, y: 50, title: t.review_node1, context: t.review_ctx1 },
+                    { id: 2, x: 50, y: 350, title: t.review_node2, context: t.review_ctx2 },
+                    { id: 3, x: 400, y: 200, title: t.review_node3, context: t.review_ctx3 }
+                ],
+                connections: [{ from: 1, to: 3 }, { from: 2, to: 3 }]
+            }
+        };
+    }
+
     function toggleAiSettingsInDrawer(container) {
         if (typeof renderCompactSettings === 'function') {
             renderCompactSettings(container);
@@ -6280,8 +7836,6 @@
 
     function showStreamingResponseModalMulti(originalContext, aiConfig, initialMode = null, autoStart = false) {
         const t = LANG_DATA[state.lang];
-        const isZh = state.lang === 'zh';
-
         if (initialMode) {
             state.aiLayoutMode = initialMode;
         } else if (!state.aiLayoutMode) {
@@ -6415,7 +7969,7 @@
                     <span style="font-size:11px; color:#aaa;">🧩 Templates:</span>
                     <select id="template-select" class="cc-toolbar-select">
                         <option value="">-- Select --</option>
-                        ${Object.keys(WORKFLOW_TEMPLATES).map(k => `<option value="${k}">${WORKFLOW_TEMPLATES[k].name}</option>`).join('')}
+                        ${Object.entries(getWorkflowTemplates()).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}
                     </select>
                 </div>
                 
@@ -6507,7 +8061,13 @@
 
         PLATFORMS.forEach(p => {
             const btn = document.createElement('button');
-            btn.innerHTML = `${p.icon} ${p.name}`;
+            const iconUrl = chrome.runtime.getURL(`images/${p.id}_${state.theme}.png`);
+            btn.innerHTML = `
+                <img src="${iconUrl}" 
+                     class="cc-platform-icon" 
+                     data-pid="${p.id}" 
+                     style="width:16px; height:16px; vertical-align:middle; object-fit:contain;">
+            `;
             btn.style.cssText = "background:#333; border:1px solid #555; color:#fff; padding:5px 8px; border-radius:4px; cursor:pointer; font-size:11px;";
             btn.onclick = () => {
                 const txt = state.singleViewConfig.responseText || state.singleViewConfig.context || "";
@@ -6561,12 +8121,12 @@
             tmplSelect.onchange = (e) => {
                 const key = e.target.value;
                 if (!key || !WORKFLOW_TEMPLATES[key]) return;
-                const isZh = state.lang === 'zh';
-                const title = isZh ? '載入模板?' : 'Load Template?';
-                const msg = isZh ? '目前的節點將被清空，確定載入?' : 'Current workflow will be cleared. Continue?';
+                const t = LANG_DATA[state.lang];
+                const title = t.mm_load_tmpl_title || 'Load Template?';
+                const msg = t.mm_load_tmpl_msg || 'Current workflow will be cleared. Continue?';
 
                 showMainConfirmModal(title, msg, () => {
-                    const tmpl = WORKFLOW_TEMPLATES[key];
+                    const tmpl = getWorkflowTemplates()[key];
                     state.multiPanelConfigs = [];
                     state.workflowConnections = [];
 
@@ -6633,7 +8193,8 @@
                     p.context = (p.context ? p.context + "\n\n" : "") + content;
                 });
                 renderAll();
-                showToast(isZh ? "已貼至所有節點" : "Pasted to all nodes");
+                const t = LANG_DATA[state.lang];
+                showToast(t.mm_pasted_all || "Pasted to all nodes");
             });
         };
 
@@ -6738,7 +8299,8 @@
                         d.innerText = item.text.substring(0, 40) + "...";
 
                         d.ondragstart = (e) => {
-                            e.dataTransfer.setData('text/plain', item.text);
+                            const dragText = formatDragText(item);
+                            e.dataTransfer.setData('text/plain', dragText);
                             e.dataTransfer.setData('application/cc-basket-id', item.id);
                             e.dataTransfer.effectAllowed = 'move';
                             d.style.opacity = '0.5';
@@ -7032,9 +8594,9 @@
                 path.setAttribute('marker-end', 'url(#arrowhead)');
                 path.onclick = (e) => {
                     e.stopPropagation();
-                    const isZh = state.lang === 'zh';
-                    const title = isZh ? '刪除連線?' : 'Delete Connection?';
-                    const msg = isZh ? '確定要移除這條連線嗎?' : 'Remove this link between nodes?';
+                    const t = LANG_DATA[state.lang];
+                    const title = t.delete_connection_title;
+                    const msg = t.delete_connection_msg;
                     showMainConfirmModal(title, msg, () => {
                         const fromId = parseInt(conn.from);
                         const toId = parseInt(conn.to);
@@ -7175,11 +8737,11 @@
             const btnEraser = document.createElement('button');
             btnEraser.innerHTML = "🧹"; btnEraser.title = t.mm_node_clear; btnEraser.style.cssText = btnStyle;
             btnEraser.onclick = (e) => {
+                const t = LANG_DATA[state.lang];
                 e.stopPropagation();
-                const isZh = state.lang === 'zh';
                 showMainConfirmModal(
-                    isZh ? "清空內容?" : "Clear Content?",
-                    isZh ? "確定清空此節點的輸入與回應?" : "Clear prompt and response?",
+                    t.mm_clear_node_title || "Clear Content?",
+                    t.mm_clear_node_msg || "Clear prompt and response?",
                     () => {
                         panel.context = "";
                         panel.responseText = "";
@@ -7212,12 +8774,15 @@
             btnRunNode.style.cssText = "width:28px; height:28px; min-width:28px; background:#4CAF50; border:none; color:#fff; border-radius:4px; cursor:pointer; font-size:12px;";
             btnRunNode.onclick = (e) => {
                 e.stopPropagation();
-                isFlowStopped = false;
-                state.runToken = (state.runToken || 0) + 1;
-                const thisToken = state.runToken;
-                panel.runCount = 0;
-                panel.isFinished = false;
-                runNodeTask(panel, thisToken, true).then(() => updateTokenCount());
+
+                attemptFeatureUsage('workflow', () => {
+                    isFlowStopped = false;
+                    state.runToken = (state.runToken || 0) + 1;
+                    const thisToken = state.runToken;
+                    panel.runCount = 0;
+                    panel.isFinished = false;
+                    runNodeTask(panel, thisToken, true).then(() => updateTokenCount());
+                });
             };
 
             const tokenDisplay = document.createElement('span');
@@ -7413,61 +8978,59 @@
 
         const btnRun = header.querySelector('#btn-run-flow');
         if (btnRun) btnRun.onclick = () => {
+            const t = LANG_DATA[state.lang];
             if (detectCycle(state.multiPanelConfigs, state.workflowConnections)) {
-                showToast(state.lang === 'zh'
-                    ? "⚠️ 偵測到循環連接 (Cycle)！請先移除循環再執行。"
-                    : "⚠️ Cycle detected! Please remove the loop before running.",
-                    document
-                );
+                showToast(t.cycle_detected, document);
                 return;
             }
+            attemptFeatureUsage('workflow', () => {
+                isFlowStopped = false;
+                state.runToken = (state.runToken || 0) + 1;
+                const thisToken = state.runToken;
+                if (state.aiLayoutMode === 'single') {
+                    state.singleViewConfig.runCount = 0;
+                    state.singleViewConfig.isFinished = false;
 
-            isFlowStopped = false;
-            state.runToken = (state.runToken || 0) + 1;
-            const thisToken = state.runToken;
-            if (state.aiLayoutMode === 'single') {
-                state.singleViewConfig.runCount = 0;
-                state.singleViewConfig.isFinished = false;
-
-                if (typeof AI_QUEUE !== 'undefined') {
-                    AI_QUEUE.add(() => runNodeTask(state.singleViewConfig, thisToken));
-                } else {
-                    runNodeTask(state.singleViewConfig, thisToken);
+                    if (typeof AI_QUEUE !== 'undefined') {
+                        AI_QUEUE.add(() => runNodeTask(state.singleViewConfig, thisToken));
+                    } else {
+                        runNodeTask(state.singleViewConfig, thisToken);
+                    }
+                    return;
                 }
-                return;
-            }
 
-            state.multiPanelConfigs.forEach(p => {
-                p.runCount = 0;
-                p.isFinished = false;
-                p.lastFinishedRunToken = -1;
-                p._inputVersion = 0;
-                p._lastQueuedKey = "";
-            });
+                state.multiPanelConfigs.forEach(p => {
+                    p.runCount = 0;
+                    p.isFinished = false;
+                    p.lastFinishedRunToken = -1;
+                    p._inputVersion = 0;
+                    p._lastQueuedKey = "";
+                });
 
-            const dests = new Set(state.workflowConnections.map(c => parseInt(c.to)));
-            const roots = state.multiPanelConfigs.filter(p => !dests.has(p.id));
+                const dests = new Set(state.workflowConnections.map(c => parseInt(c.to)));
+                const roots = state.multiPanelConfigs.filter(p => !dests.has(p.id));
 
-            if (roots.length === 0 && state.multiPanelConfigs.length > 0) {
-                if (typeof AI_QUEUE !== 'undefined') AI_QUEUE.add(() => runNodeTask(state.multiPanelConfigs[0], thisToken));
-                else runNodeTask(state.multiPanelConfigs[0], thisToken);
-            } else {
-                const loopLimit = state.loopSetting || 1;
+                if (roots.length === 0 && state.multiPanelConfigs.length > 0) {
+                    if (typeof AI_QUEUE !== 'undefined') AI_QUEUE.add(() => runNodeTask(state.multiPanelConfigs[0], thisToken));
+                    else runNodeTask(state.multiPanelConfigs[0], thisToken);
+                } else {
+                    const loopLimit = state.loopSetting || 1;
 
-                roots.forEach(p => {
-                    const hasOutgoing = state.workflowConnections.some(c => parseInt(c.from) === p.id);
+                    roots.forEach(p => {
+                        const hasOutgoing = state.workflowConnections.some(c => parseInt(c.from) === p.id);
 
-                    if (!hasOutgoing && loopLimit > 1) {
-                        for (let i = 0; i < loopLimit; i++) {
+                        if (!hasOutgoing && loopLimit > 1) {
+                            for (let i = 0; i < loopLimit; i++) {
+                                if (typeof AI_QUEUE !== 'undefined') AI_QUEUE.add(() => runNodeTask(p, thisToken));
+                                else runNodeTask(p, thisToken);
+                            }
+                        } else {
                             if (typeof AI_QUEUE !== 'undefined') AI_QUEUE.add(() => runNodeTask(p, thisToken));
                             else runNodeTask(p, thisToken);
                         }
-                    } else {
-                        if (typeof AI_QUEUE !== 'undefined') AI_QUEUE.add(() => runNodeTask(p, thisToken));
-                        else runNodeTask(p, thisToken);
-                    }
-                });
-            }
+                    });
+                }
+            });
         };
 
         renderAll();
@@ -7757,7 +9320,8 @@
                             renderEditorBasket();
                         }
                         const indices = Array.from(selectedBasketIndices).sort((a, b) => a - b);
-                        const combinedText = indices.map(i => basket[i].text).join("\n\n");
+                        const selectedItems = indices.map(i => basket[i]);
+                        const combinedText = formatDragText(selectedItems);
                         e.dataTransfer.setData('text/plain', combinedText);
                         e.dataTransfer.setData('application/cc-editor-id', item.id);
                         e.dataTransfer.effectAllowed = 'copyMove';
@@ -7863,7 +9427,7 @@
         try {
             port = chrome.runtime.connect({ name: "cc-ai-stream" });
         } catch (e) {
-            console.error("Context-Carry: Connection failed", e);
+            console.error("ContextDrone: Connection failed", e);
             controller.error("Extension context invalidated. Please refresh the page.");
             return;
         }
@@ -7971,7 +9535,6 @@
     ========================================= */
     document.addEventListener('dragover', (e) => {
         if (!state.config) return;
-
         if (e.dataTransfer.types.includes('application/cc-sort')) return;
 
         const isInput = e.target.closest(state.config.inputSelector) ||
@@ -7984,6 +9547,14 @@
             e.preventDefault();
             e.stopPropagation();
             e.dataTransfer.dropEffect = 'copy';
+
+            const overlays = document.querySelectorAll('.cc-drop-overlay, .ds-drop-overlay, #cc-drag-shim, .fixed.inset-0');
+            overlays.forEach(ol => {
+                if (ol.style.display !== 'none') {
+                    ol.style.display = 'none';
+                    ol.style.pointerEvents = 'none';
+                }
+            });
         }
     }, true);
 
@@ -8033,7 +9604,7 @@
         const text = e.dataTransfer.getData('text/plain');
         if (text) {
             autoFillInput(inputEl, text);
-            showToast(LANG_DATA[state.lang]?.toast_autofill || "Auto-filled by Context-Carry.");
+            showToast(LANG_DATA[state.lang]?.toast_autofill || "Auto-filled by ContextDrone.");
         }
 
         cleanUpSiteOverlays();
@@ -8351,7 +9922,7 @@
                 <div class="pip-controls-group">
                     <select id="pip-template-select" style="background:#111; color:#aaa; border:1px solid #333; font-size:10px; margin-right:10px; height:24px; border-radius:4px;">
                         <option value="">🧩 Load Template</option>
-                        ${Object.keys(WORKFLOW_TEMPLATES).map(k => `<option value="${k}">${WORKFLOW_TEMPLATES[k].name}</option>`).join('')}
+                        ${Object.entries(getWorkflowTemplates()).map(([k, v]) => `<option value="${k}">${v.name}</option>`).join('')}
                     </select>
                     
                     <div style="display:flex; align-items:center; gap:4px; margin-right:10px; padding:2px 6px; border-radius:4px; border:1px solid var(--border); height:24px; box-sizing:border-box;">
@@ -8569,7 +10140,7 @@
                 <body>
                     <h2 style="border-bottom:2px solid #000; padding-bottom:10px; margin-bottom:20px;">${escapeHTML(name)}</h2>
                     ${htmlContent}
-                    <div style="margin-top:50px; font-size:10px; color:#999; text-align:center;">Exported via Context-Carry</div>
+                    <div style="margin-top:50px; font-size:10px; color:#999; text-align:center;">Exported via ContextDrone</div>
                 </body>
             </html>
         `);
@@ -8597,7 +10168,7 @@
             element.innerHTML = `
             <h2 style="border-bottom:2px solid #000; padding-bottom:10px; margin-bottom:20px;">${escapeHTML(name)}</h2>
             ${generateHTMLContent()}
-            <div style="margin-top:50px; font-size:10px; color:#999; text-align:center;">Exported via Context-Carry</div>
+            <div style="margin-top:50px; font-size:10px; color:#999; text-align:center;">Exported via ContextDrone</div>
         `;
 
             const opt = {
@@ -8722,9 +10293,9 @@
     }
 
     function showMainConfirmModal(title, message, onConfirm) {
-        const isZh = state.lang === 'zh';
-        const txtConfirm = isZh ? '確認' : 'Confirm';
-        const txtCancel = isZh ? '取消' : 'Cancel';
+        const t = LANG_DATA[state.lang];
+        const txtConfirm = t.confirm_click;
+        const txtCancel = t.cancel_click;
 
         const overlay = document.createElement('div');
         Object.assign(overlay.style, {
@@ -8836,10 +10407,10 @@
         if (pipTmplSelect) {
             pipTmplSelect.onchange = (e) => {
                 const key = e.target.value;
-                if (!key || !WORKFLOW_TEMPLATES[key]) return;
+                if (!key || !getWorkflowTemplates()[key]) return;
 
                 showPiPConfirmModal(win, "Load Template?", "Current workflow will be cleared.", () => {
-                    const tmpl = WORKFLOW_TEMPLATES[key];
+                    const tmpl = getWorkflowTemplates()[key];
                     state.multiPanelConfigs = [];
                     state.workflowConnections = [];
 
@@ -8982,7 +10553,9 @@
             renderPiPNodes(win);
         };
         doc.getElementById('btn-run-all').onclick = () => {
-            handlePiPRunAll(win);
+            attemptFeatureUsage('workflow', () => {
+                handlePiPRunAll(win);
+            });
         };
 
         initPiPWorkflow(win);
@@ -9409,8 +10982,9 @@
                 };
 
                 el.ondragstart = (e) => {
-                    e.dataTransfer.setData('text/plain', item.text);
-                    e.dataTransfer.setData('application/cc-pip-basket-item', item.text);
+                    const dragText = formatDragText(item);
+                    e.dataTransfer.setData('text/plain', dragText);
+                    e.dataTransfer.setData('application/cc-pip-basket-item', dragText);
                     if (currentTagFilter === 'all') {
                         e.dataTransfer.setData('application/cc-pip-sort-id', item.id);
                     }
@@ -9611,29 +11185,32 @@
             el.querySelector('.run').onclick = async (e) => {
                 e.stopPropagation();
 
-                const currentSelection = sel.value;
-                const activeConfig = state.allAiConfigs.find(c => c.name === currentSelection);
-                if (activeConfig) node.config = activeConfig;
+                attemptFeatureUsage('workflow', () => {
 
-                win.isPiPStopped = false;
-                node.runCount = 0;
-                node.isFinished = false;
-                node.responseText = "";
+                    const currentSelection = sel.value;
+                    const activeConfig = state.allAiConfigs.find(c => c.name === currentSelection);
+                    if (activeConfig) node.config = activeConfig;
 
-                const outArea = el.querySelector('.node-output');
-                if (outArea) outArea.value = "";
+                    win.isPiPStopped = false;
+                    node.runCount = 0;
+                    node.isFinished = false;
+                    node.responseText = "";
 
-                const statusEl = el.querySelector('.node-status');
-                if (statusEl) {
-                    statusEl.innerText = "Waiting...";
-                    statusEl.className = 'node-status busy';
-                }
+                    const outArea = el.querySelector('.node-output');
+                    if (outArea) outArea.value = "";
 
-                if (typeof runPiPNode === 'function') {
-                    runPiPNode(node, win, true);
-                } else {
-                    console.error("Context-Carry: runPiPNode function missing.");
-                }
+                    const statusEl = el.querySelector('.node-status');
+                    if (statusEl) {
+                        statusEl.innerText = "Waiting...";
+                        statusEl.className = 'node-status busy';
+                    }
+
+                    if (typeof runPiPNode === 'function') {
+                        runPiPNode(node, win, true);
+                    } else {
+                        console.error("ContextDrone: runPiPNode function missing.");
+                    }
+                });
             };
 
             el.querySelector('.del').onclick = (e) => {
@@ -9839,8 +11416,9 @@
                     el.innerHTML = `${item.text.substring(0, 30)}...${tagLabel}`;
 
                     el.ondragstart = (e) => {
-                        e.dataTransfer.setData('application/cc-pip-basket-item', item.text);
-                        e.dataTransfer.setData('text', item.text);
+                        const dragText = formatDragText(item);
+                        e.dataTransfer.setData('application/cc-pip-basket-item', dragText);
+                        e.dataTransfer.setData('text', dragText);
                         e.dataTransfer.effectAllowed = 'copy';
                     };
                     list.appendChild(el);
@@ -9850,7 +11428,144 @@
     }
 
     /* =========================================
-       Helper: Get Text 
+       Helper
+    ========================================= */
+
+    async function uploadToMyServerSecure(htmlContent, retentionType = 'short') {
+        const key = await window.crypto.subtle.generateKey(
+            { name: "AES-GCM", length: 256 },
+            true,
+            ["encrypt", "decrypt"]
+        );
+
+        const iv = window.crypto.getRandomValues(new Uint8Array(12));
+        const encoder = new TextEncoder();
+        const encodedData = encoder.encode(htmlContent);
+
+        const encryptedBuffer = await window.crypto.subtle.encrypt(
+            { name: "AES-GCM", iv: iv },
+            key,
+            encodedData
+        );
+
+        const contentB64 = arrayBufferToBase64(encryptedBuffer);
+        const ivB64 = arrayBufferToBase64(iv);
+
+
+        const DOMAIN = 'https://qrcode.doglab24.org';
+        const API_ENDPOINT = `${DOMAIN}/api/upload`;
+
+        const uploadPayload = JSON.stringify({
+            data: contentB64,
+            iv: ivB64
+        });
+
+        const response = await fetch(API_ENDPOINT, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Secret-Token': 'dogegg-qrcode-generator'
+            },
+            body: JSON.stringify({
+                content: uploadPayload,
+                type: retentionType
+            })
+        });
+
+        if (!response.ok) throw new Error("Upload Failed: " + response.statusText);
+
+        const resJson = await response.json();
+        const exportedKey = await window.crypto.subtle.exportKey("jwk", key);
+        const keyString = btoa(JSON.stringify(exportedKey));
+        const VIEWER_URL = `${DOMAIN}/viewer.html`;
+
+        return `${VIEWER_URL}?id=${resJson.id}&type=${resJson.type}#${keyString}`;
+    }
+
+    function arrayBufferToBase64(buffer) {
+        let binary = '';
+        const bytes = new Uint8Array(buffer);
+        const len = bytes.byteLength;
+        for (let i = 0; i < len; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(binary);
+    }
+
+    async function handleQrCodeAction() {
+        let basket = [];
+        const currentBasket = await new Promise(resolve => getBasket(resolve));
+        const pageSelectedText = getSelectedText(false) || "";
+
+        if (currentBasket.length === 0 && !pageSelectedText) {
+            showToast("No content to share! 📱");
+            return;
+        }
+
+        attemptFeatureUsage('qrcode', async (currentStats) => {
+            const WATERMARK_START_AT = 5;
+            const currentUsage = currentStats.counts.qrcode || 0;
+            const shouldAddWatermark = (currentStats.tier === 1 && currentUsage >= WATERMARK_START_AT);
+
+            const css = `body { font-family: sans-serif; padding: 20px; background: #f9f9f9; color: #333; line-height: 1.6; } .card { background: #fff; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); border-left: 4px solid #00d2ff; } .content { white-space: pre-wrap; word-break: break-word; font-size: 14px; }`;
+
+            let htmlContent = `<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body>`;
+            htmlContent += `<div style="text-align:center;margin-bottom:20px;color:#555;">ContextDrone Share<br><span style="font-size:10px;">${new Date().toLocaleString()}</span></div>`;
+
+            if (pageSelectedText) {
+                htmlContent += `<div class="card" style="border-left-color: #ff9800;"><div style="font-size:12px; color:#999;">📄 Page Selection</div><div class="content">${escapeHTML(pageSelectedText)}</div></div>`;
+            }
+            currentBasket.forEach(item => {
+                htmlContent += `<div class="card"><div style="font-size:12px; color:#999;">SOURCE: ${escapeHTML(item.source || 'Unknown')}</div><div class="content">${escapeHTML(item.text)}</div></div>`;
+            });
+            htmlContent += `</body></html>`;
+
+            const existing = document.querySelector('.cc-qr-modal');
+            if (existing) existing.remove();
+
+            const modal = document.createElement('div');
+            modal.className = 'cc-qr-modal';
+            Object.assign(modal.style, {
+                position: 'fixed', top: '0', left: '0', width: '100vw', height: '100vh',
+                zIndex: '2147483660', backgroundColor: 'rgba(0,0,0,0.8)',
+                backdropFilter: 'blur(3px)', display: 'flex', alignItems: 'center', justifyContent: 'center'
+            });
+
+            modal.innerHTML = `
+                <div class="cc-qr-card" style="background: #fff; padding: 25px; border-radius: 12px; display: flex; flex-direction: column; align-items: center;">
+                    <div id="qr-status-text" style="font-weight:bold; margin-bottom:15px; color:#333;">☁️ Encrypting & Uploading...</div>
+                    <div id="qrcode-container" style="background:#f5f5f5; padding:20px; border-radius:8px; min-width:200px; min-height:200px; display:flex; justify-content:center; align-items:center;"></div>
+                    <button id="cc-close-qr" style="margin-top:20px; padding:8px 30px; cursor:pointer; background:#333; color: #fff; border:none; border-radius:6px;">Close</button>
+                </div>
+            `;
+            modal.querySelector('#cc-close-qr').onclick = () => modal.remove();
+            document.body.appendChild(modal);
+
+            const container = modal.querySelector('#qrcode-container');
+            const statusText = modal.querySelector('#qr-status-text');
+
+            try {
+                const retentionType = (currentStats.tier >= 2) ? 'long' : 'short';
+                const secureLink = await uploadToMyServerSecure(htmlContent, retentionType);
+
+                statusText.innerText = "📱 Scan to View";
+                container.innerHTML = '';
+                if (typeof qrcode === 'function') {
+                    const qr = qrcode(0, 'L');
+                    qr.addData(secureLink);
+                    qr.make();
+                    container.innerHTML = qr.createImgTag(5, 10);
+                }
+            } catch (err) {
+                console.error(err);
+                statusText.innerText = "Error";
+                container.innerHTML = `<div style="color:red; font-size:12px;">Failed.<br>${err.message}</div>`;
+            }
+        });
+    }
+
+    /* =========================================
+       Initial
     ========================================= */
     function t(key) {
         const dict = state.langData[state.lang] || state.langData['en'];
@@ -9859,4 +11574,5 @@
 
     injectStyles();
     initPinDropLogic();
+
 })();

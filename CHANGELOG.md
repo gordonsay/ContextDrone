@@ -2,13 +2,101 @@
 
 All notable changes to this project will be documented in this file.
 ------------------------------------------------------------------------
+## [1.7.0] - 2026-01-15
+
+### 🚀 New Features
+
+#### Expanded Platform Support
+- **New Transfer Targets:**
+  Added direct context transfer support for two additional AI platforms:
+  - **DeepSeek**
+  - **Perplexity**
+- **Auto-Fill Integration:**
+  Context can now be injected directly into DeepSeek and Perplexity input fields using the same one-click transfer flow as other supported platforms.
+
+#### API Integration (DeepSeek / Perplexity)
+- **Native API Calls:**
+  Added first-class API request support for:
+  - **DeepSeek API**
+  - **Perplexity API**
+- **Unified Request Layer:**
+  Both APIs are now handled through the same normalized request pipeline used by existing providers, ensuring consistent behavior and error handling.
+- **BYO Key Compatible:**
+  Fully compatible with the existing **Bring Your Own Key** architecture. API keys remain client-side only.
+
+---
+
+#### QR Code Context Sharing (Stable)
+- **Unified QR Code Export:**
+  Added a stable **QR Code** feature for cross-device context sharing.
+  - Supports Basket-only, Page-only, and Merged Context exports.
+  - Optimized payload structure for faster mobile scanning and decoding.
+- **Source-Aware Transfer:**
+  QR payloads now include **context source metadata**, allowing receivers to clearly identify where each context block originates.
+
+#### Context Source Annotation
+- **Explicit Source Labels:**
+  All captured context blocks are now automatically annotated with their origin:
+  - Page Selection
+  - Basket Item
+  - Manual / Custom Context
+- **Export Consistency:**
+  Source annotations are preserved across all output paths (Auto-Fill, Copy, QR Code, Export).
+
+---
+
+### 🧠 Core Context Architecture
+
+#### Context Output Normalization
+- **Unified Output Schema:**
+  All context outputs now follow a single, consistent structure regardless of entry point.
+- **Eliminated Format Drift:**
+  Removed legacy inconsistencies between Panel, Drone Mode, and Auto-Fill pipelines.
+- **Deterministic Ordering:**
+  Context ordering is now predictable and optimized for long-context stability in LLMs.
+
+---
+
+### 🎨 UI / UX Overhaul
+
+#### Icon-First Interface Simplification
+- **Icon-Based Actions:**
+  Simplified the entire UI by replacing text-heavy buttons with clear, icon-based actions.
+- **Cross-Mode Consistency:**
+  Unified icon semantics across Main Panel, Drone Mode, and PiP windows.
+- **Reduced Visual Noise:**
+  Removed redundant labels and secondary text for faster visual scanning.
+
+#### Visual Consistency Pass
+- **Layout Simplification:**
+  Streamlined layouts by removing unnecessary separators and UI clutter.
+- **Feature Parity:**
+  Ensured consistent behavior and appearance across all UI modes.
+
+---
+
+### 🛠️ Improvements
+
+- Improved reliability when exporting mixed-source context.
+- Reduced UI re-render overhead by consolidating context state updates.
+- Improved API error handling and retry behavior for newly supported providers.
+- Refactored context-related UI components for better maintainability.
+
+---
+
+### 🧹 Cleanup & Breaking Changes
+
+- Removed legacy text-based UI labels in favor of icon-driven interactions.
+- Consolidated multiple export and API request paths into a single normalized flow.
+
+------------------------------------------------------------------------
 ## [1.6.3] - 2026-01-06
 
 ### 🚀 New Features
 
 #### Drone Mode Enhancements
-- **Context Anchors (Ping):**
-  Added a **"Ping"** button in Drone Mode. Users can now mark their current scroll position in long conversation logs and instantly jump back to the anchor, solving the "lost in context" problem.
+- **Context Anchors (Pin):**
+  Added a **"Pin"** button in Drone Mode. Users can now mark their current scroll position in long conversation logs and instantly jump back to the anchor, solving the "lost in context" problem.
 - **Secure Mobile Handoff (Beta):**
   Introduced a **QR Code Generator** for transferring context to mobile devices.
   - **Zero-Knowledge:** Uses Client-Side Encryption (AES-GCM) before uploading.

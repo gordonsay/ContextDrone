@@ -13,8 +13,58 @@ const BG_MESSAGES = {
     }
 };
 
-const RELEASE_NOTES_URL = "https://doglab24.org";
-const UPDATE_NOTES_URL = "https://doglab24.org/whatsnew";
+const DEFAULT_API_ENDPOINTS = {
+    'openai': 'https://api.openai.com/v1/chat/completions',
+    'claude': 'https://api.anthropic.com/v1/messages',
+    'grok': 'https://api.x.ai/v1/chat/completions',
+    'gemini': 'https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent',
+    'deepseek': 'https://api.deepseek.com/chat/completions',
+    'perplexity': 'https://api.perplexity.ai/chat/completions',
+    'ollama': 'http://localhost:11434/v1/chat/completions',
+    'lm-studio': 'http://localhost:1234/v1/chat/completions'
+};
+
+const timestamp = new Date().getTime();
+const REMOTE_CONFIG_URL = `https://gist.githubusercontent.com/gordonsay/aaf67705332b0e6d522424fbbf1f5ce4/raw/llm_config.json?t=${timestamp}`;
+
+async function getApiEndpoints() {
+    const CACHE_KEY = 'cc_api_endpoints';
+    const CACHE_TIME_KEY = 'cc_api_ts';
+    const result = await chrome.storage.local.get([CACHE_KEY, CACHE_TIME_KEY]);
+    const now = Date.now();
+
+    if (result[CACHE_KEY] && result[CACHE_TIME_KEY] && (now - result[CACHE_TIME_KEY] < 600000)) {
+        return { ...DEFAULT_API_ENDPOINTS, ...result[CACHE_KEY] };
+    }
+
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+        const response = await fetch(REMOTE_CONFIG_URL, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (!response.ok) throw new Error('Fetch failed');
+
+        const data = await response.json();
+        const remoteEndpoints = data.API_ENDPOINTS || {};
+
+        chrome.storage.local.set({
+            [CACHE_KEY]: remoteEndpoints,
+            [CACHE_TIME_KEY]: now
+        });
+
+        console.log('[Background] API Endpoints updated from remote');
+        return { ...DEFAULT_API_ENDPOINTS, ...remoteEndpoints };
+
+    } catch (e) {
+        console.warn('[Background] Remote config failed, using default:', e);
+        return { ...DEFAULT_API_ENDPOINTS, ...(result[CACHE_KEY] || {}) };
+    }
+}
+
+const RELEASE_NOTES_URL = "https://contextdrone.com";
+const UPDATE_NOTES_URL = "https://contextdrone.com/whatsnew";
 
 /* ============================================================================
    2. MUTEX QUEUE & CENTRALIZED BASKET LOGIC (Data Consistency Layer)
@@ -197,9 +247,9 @@ chrome.runtime.onInstalled.addListener((details) => {
     else if (details.reason === 'update') {
         const currentVersion = chrome.runtime.getManifest().version;
         if (currentVersion !== details.previousVersion) {
-            chrome.tabs.create({
-                url: `${UPDATE_NOTES_URL}?v=${currentVersion}&lang=${targetLang}`
-            });
+            // chrome.tabs.create({
+            //     url: `${UPDATE_NOTES_URL}?v=${currentVersion}&lang=${targetLang}`
+            // });
             chrome.action.setBadgeText({ text: 'NEW' });
             chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
         }
@@ -245,8 +295,8 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
         };
 
         handleBasketOperation({ kind: 'ADD', item: newItem })
-            .then(() => console.log("Context-Carry: Item added via Context Menu."))
-            .catch(err => console.error("Context-Carry: Add failed:", err));
+            .then(() => console.log("ContextDrone: Item added via Context Menu."))
+            .catch(err => console.error("ContextDrone: Add failed:", err));
     }
 });
 
@@ -418,12 +468,14 @@ function parseLocalChunk(line) {
     return null;
 }
 
-function buildRequestParams(provider, model, apiKey, endpoint, text) {
+function buildRequestParams(provider, model, apiKey, endpoint, text, endpointsMap) {
     let url = endpoint ? endpoint.trim() : '';
     let headers = { 'Content-Type': 'application/json' };
     let body = {};
     const targetModel = (model || '').trim();
     const targetApiKey = apiKey;
+
+    const configUrls = endpointsMap || DEFAULT_API_ENDPOINTS;
 
     if (provider === 'gemini' && targetModel.startsWith('gpt')) model = '';
 
@@ -433,7 +485,8 @@ function buildRequestParams(provider, model, apiKey, endpoint, text) {
         const defaultModel = finalModel || 'gemini-2.5-flash';
 
         if (!url) {
-            url = `https://generativelanguage.googleapis.com/v1beta/models/${defaultModel}:streamGenerateContent`;
+            let rawUrl = configUrls.gemini || DEFAULT_API_ENDPOINTS.gemini;
+            url = rawUrl.replace('{model}', defaultModel);
         }
 
         let urlObj;
@@ -449,7 +502,7 @@ function buildRequestParams(provider, model, apiKey, endpoint, text) {
         body = { contents: [{ parts: [{ text: text }] }] };
     }
     else if (provider === 'claude') {
-        if (!url) url = 'https://api.anthropic.com/v1/messages';
+        if (!url) url = configUrls.claude || DEFAULT_API_ENDPOINTS.claude;
         headers['x-api-key'] = targetApiKey;
         headers['anthropic-version'] = '2023-06-01';
         body = {
@@ -460,7 +513,7 @@ function buildRequestParams(provider, model, apiKey, endpoint, text) {
         };
     }
     else if (provider === 'openai') {
-        if (!url) url = 'https://api.openai.com/v1/chat/completions';
+        if (!url) url = configUrls.openai || DEFAULT_API_ENDPOINTS.openai;
         if (targetApiKey) headers['Authorization'] = `Bearer ${targetApiKey}`;
         body = {
             model: targetModel,
@@ -469,7 +522,7 @@ function buildRequestParams(provider, model, apiKey, endpoint, text) {
         };
     }
     else if (provider === 'grok') {
-        if (!url) url = 'https://api.x.ai/v1/chat/completions';
+        if (!url) url = configUrls.grok || DEFAULT_API_ENDPOINTS.grok;
         if (targetApiKey) headers['Authorization'] = `Bearer ${targetApiKey}`;
         body = {
             model: targetModel,
@@ -479,8 +532,14 @@ function buildRequestParams(provider, model, apiKey, endpoint, text) {
     }
     else if (['local', 'ollama', 'lm_studio', 'lm-studio'].includes(provider)) {
         if (!url) {
-            if (provider.includes('lm-studio') || provider.includes('lm_studio')) url = 'http://localhost:1234/v1/chat/completions';
-            else url = 'http://localhost:11434/v1/chat/completions';
+            url = configUrls[provider];
+            if (!url) {
+                if (provider.includes('lm-studio') || provider.includes('lm_studio')) {
+                    url = 'http://localhost:1234/v1/chat/completions';
+                } else {
+                    url = 'http://localhost:11434/v1/chat/completions';
+                }
+            }
         } else {
             try {
                 if (!url.startsWith('http')) url = 'http://' + url;
@@ -506,6 +565,7 @@ function buildRequestParams(provider, model, apiKey, endpoint, text) {
 }
 
 async function handleAiRequest(text, config, lang, port) {
+    const dynamicEndpoints = await getApiEndpoints();
     let apiUrl = config.endpoint || '';
     let provider = config.provider || 'openai';
     const originalProvider = provider;
@@ -522,7 +582,7 @@ async function handleAiRequest(text, config, lang, port) {
     if (apiUrl && apiUrl.endsWith('/')) apiUrl = apiUrl.slice(0, -1);
 
     let { url, headers, body } = buildRequestParams(
-        originalProvider, config.model, safeApiKey, apiUrl, text
+        originalProvider, config.model, safeApiKey, apiUrl, text, dynamicEndpoints
     );
 
     const isOpenAIFormat = provider === 'local' && (
@@ -554,7 +614,7 @@ async function handleAiRequest(text, config, lang, port) {
             method: 'POST', headers, body: JSON.stringify(body)
         });
     } catch (netErr) {
-        console.error("Context-Carry Network Error:", netErr);
+        console.error("ContextDrone Network Error:", netErr);
         const t = BG_MESSAGES[lang] || BG_MESSAGES['en'];
         if (provider === 'local') throw new Error(t.local_err.replace('{url}', url));
         throw new Error(t.net_err.replace('{msg}', netErr.message || 'Unknown network error'));

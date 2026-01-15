@@ -2,9 +2,11 @@
     window.CC_CONFIG = {
         PLATFORMS: [
             { id: 'chatgpt', name: 'ChatGPT', url: 'https://chatgpt.com/?model=gpt-4o', icon: '🤖', limit: 100000 },
-            { id: 'claude', name: 'Claude', url: 'https://claude.ai/new', icon: '🧠', limit: 180000 },
+            { id: 'claude', name: 'Claude', url: 'https://claude.ai/new', icon: '🧠', limit: 200000 },
             { id: 'gemini', name: 'Gemini', url: 'https://gemini.google.com/app', icon: '💎', limit: 1000000 },
-            { id: 'grok', name: 'Grok', url: 'https://grok.com', icon: '✖️', limit: 100000 }
+            { id: 'grok', name: 'Grok', url: 'https://grok.com', icon: '✖️', limit: 100000 },
+            { id: 'deepseek', name: 'DeepSeek', url: 'https://chat.deepseek.com', icon: '🐋', limit: 100000 },
+            { id: 'perplexity', name: 'Perplexity', url: 'https://www.perplexity.ai', icon: '🔍', limit: 50000 }
         ],
 
         APP_CONFIG: {
@@ -27,6 +29,16 @@
                 msgSelector: '.message-bubble',
                 inputSelector: 'div[role="textbox"], textarea, div[contenteditable="true"]',
                 ignore: 'svg, span[role="button"], .action-buttons'
+            },
+            'chat.deepseek.com': {
+                msgSelector: '.ds-message, .ds-markdown, .ds-text, div[class*="message-content"], .fbb737a4',
+                inputSelector: '#chat-input, textarea, div[contenteditable="true"]',
+                ignore: '.ds-icon-button, button, svg, .ds-ref'
+            },
+            'www.perplexity.ai': {
+                msgSelector: '.prose, div[class*="answer"], .bg-offset.rounded-2xl, h1, .select-text',
+                inputSelector: 'textarea, div[contenteditable="true"]',
+                ignore: '.citation, .source, .related, button, svg, .exclude-from-selection, .suggestion'
             }
         },
 
@@ -50,10 +62,26 @@
                 'grok-2-mini', 'grok-2', 'grok-3-mini',
                 'grok-3', 'grok-4', 'grok-4-fast'
             ],
+            'deepseek': [
+                'deepseek-chat', 'deepseek-coder', 'deepseek-reasoner'
+            ],
+            'perplexity': [
+                'sonar-small-online', 'sonar-medium-online', 'sonar-reasoning-pro'
+            ],
 
             'ollama': [],
 
             'lm-studio': []
+        },
+        "API_ENDPOINTS": {
+            "openai": "https://api.openai.com/v1/chat/completions",
+            "claude": "https://api.anthropic.com/v1/messages",
+            "grok": "https://api.x.ai/v1/chat/completions",
+            "gemini": "https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent",
+            "deepseek": "https://api.deepseek.com/chat/completions",
+            "perplexity": "https://api.perplexity.ai/chat/completions",
+            "ollama": "http://localhost:11434/v1/chat/completions",
+            "lm-studio": "http://localhost:1234/v1/chat/completions"
         }
 
     };

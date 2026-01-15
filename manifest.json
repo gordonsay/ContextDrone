@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "__MSG_appName__",
-    "version": "1.6.3",
+    "version": "1.7.0",
     "description": "__MSG_appDesc__",
     "default_locale": "en",
     "permissions": [
@@ -17,22 +17,27 @@
         "https://gemini.google.com/*",
         "https://grok.com/*",
         "https://x.com/*",
+        "https://chat.deepseek.com/*",
+        "https://www.perplexity.ai/*",
         "https://api.openai.com/*",
         "https://api.anthropic.com/*",
         "https://generativelanguage.googleapis.com/*",
         "https://api.x.ai/*",
+        "https://api.deepseek.com/chat/completions/*",
+        "https://api.perplexity.ai/chat/completions/*",
         "http://localhost:11434/*",
         "http://127.0.0.1:11434/*",
         "http://localhost:1234/*",
         "http://127.0.0.1:1234/*",
-        "https://qrcode.doglab24.org/*"
+        "https://qrcode.doglab24.org/*",
+        "https://gist.githubusercontent.com/*"
     ],
     "background": {
         "service_worker": "background.js",
         "type": "module"
     },
     "action": {
-        "default_title": "Open Context-Carry",
+        "default_title": "Open ContextDrone",
         "default_icon": {
             "16": "icons/icon16.png",
             "48": "icons/icon48.png",
@@ -46,7 +51,9 @@
                 "https://claude.ai/*",
                 "https://gemini.google.com/*",
                 "https://grok.com/*",
-                "https://x.com/*"
+                "https://x.com/*",
+                "https://chat.deepseek.com/*",
+                "https://www.perplexity.ai/*"
             ],
             "js": [
                 "assets_style.js",
@@ -64,7 +71,8 @@
         {
             "resources": [
                 "lib/pdfobject.min.js",
-                "lib/html2pdf.bundle.min.js"
+                "lib/html2pdf.bundle.min.js",
+                "images/*.png"
             ],
             "matches": [
                 "<all_urls>"

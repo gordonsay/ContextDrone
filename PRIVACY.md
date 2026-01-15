@@ -1,6 +1,6 @@
-# Privacy Policy — Context-Carry
+# Privacy Policy — ContextDrone
 
-Your privacy matters. This document explains clearly how Context-Carry handles data.
+Your privacy matters. This document explains clearly how ContextDrone handles data.
 
 ---
 
@@ -88,5 +88,5 @@ Updates will be posted here and on the GitHub repository.
 
 If you have questions, feel free to reach out:
 
-- **GitHub Issues:** `Context-Carry repository discussion`
+- **GitHub Issues:** `ContextDrone repository discussion`
 - **Email:** a0983828539@gmail.com

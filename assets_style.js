@@ -27,6 +27,8 @@ const CC_STYLES = `
                     --cld-bg: #fffbeb; --cld-text: #d97706; --cld-border: #fde68a;
                     --gem-bg: #eff6ff; --gem-text: #2563eb; --gem-border: #bfdbfe;
                     --grk-bg: #f3f4f6; --grk-text: #1f2937; --grk-border: #e5e7eb;
+                    --dsk-bg: #e0e7ff; --dsk-text: #3730a3; --dsk-border: #c7d2fe;
+                    --ppl-bg: #ccfbf1; --ppl-text: #0f766e; --ppl-border: #99f6e4;
                 }
                 #cc-panel[data-theme="dark"] {
                     --cc-bg: #1e1e1e;
@@ -42,6 +44,8 @@ const CC_STYLES = `
                     --cld-bg: rgba(245,158,11,0.15); --cld-text: #fbbf24; --cld-border: rgba(245,158,11,0.3);
                     --gem-bg: rgba(59,130,246,0.15); --gem-text: #60a5fa; --gem-border: rgba(59,130,246,0.3);
                     --grk-bg: rgba(255,255,255,0.1); --grk-text: #e5e7eb; --grk-border: rgba(255,255,255,0.2);
+                    --dsk-bg: rgba(99, 102, 241, 0.15); --dsk-text: #818cf8; --dsk-border: rgba(99, 102, 241, 0.3);
+                    --ppl-bg: rgba(20, 184, 166, 0.15); --ppl-text: #2dd4bf; --ppl-border: rgba(20, 184, 166, 0.3);
                 }
 
                 #cc-panel.cc-panel {
@@ -108,21 +112,22 @@ const CC_STYLES = `
 
                 #cc-panel .cc-grid {
                     display: grid;
-                    grid-template-columns: 1fr 1fr;
+                    grid-template-columns: repeat(3, 1fr);
                     gap: 8px;
                     margin-bottom: 12px;
                 }
                 #cc-panel .platform-btn {
                     display: flex;
                     align-items: center;
-                    gap: 8px;
+                    justify-content: center;
+                    gap: 0px;
                     padding: 8px 12px;
                     border-radius: 8px;
                     cursor: pointer;
                     transition: all 0.2s;
                     border: 1px solid transparent;
                     font-weight: 600;
-                    font-size: 12px;
+                    font-size: 0px;
                 }
                 #cc-panel .platform-btn:hover {
                     transform: translateY(-1px);
@@ -132,10 +137,16 @@ const CC_STYLES = `
                     font-style: normal;
                     font-size: 16px;
                 }
-                #cc-panel .p-chatgpt { background: var(--gpt-bg); color: var(--gpt-text); border-color: var(--gpt-border); }
-                #cc-panel .p-claude { background: var(--cld-bg); color: var(--cld-text); border-color: var(--cld-border); }
-                #cc-panel .p-gemini { background: var(--gem-bg); color: var(--gem-text); border-color: var(--gem-border); }
-                #cc-panel .p-grok { background: var(--grk-bg); color: var(--grk-text); border-color: var(--grk-border); }
+                #cc-panel .p-chatgpt,
+                #cc-panel .p-claude,
+                #cc-panel .p-gemini,
+                #cc-panel .p-grok,
+                #cc-panel .p-deepseek,
+                #cc-panel .p-perplexity {
+                    background: var(--cc-btn-bg);
+                    color: var(--cc-text);
+                    border-color: var(--cc-border);
+                }
 
                 #cc-panel .cc-tools {
                     display: flex;
@@ -150,7 +161,7 @@ const CC_STYLES = `
                     color: var(--cc-text);
                     border-radius: 6px;
                     cursor: pointer;
-                    font-size: 11px;
+                    font-size: 14px;
                     font-weight: 500;
                     transition: 0.2s;
                 }
@@ -207,8 +218,8 @@ const CC_STYLES = `
                 #cc-panel textarea.cc-input {
                     padding: 8px;
                     resize: vertical;
-                    height: 120px;
-                    min-height: 80px;
+                    height: 70px;
+                    min-height: 70px;
                 }
 
                 #cc-panel input.cc-input, 
@@ -672,7 +683,7 @@ const CC_STYLES = `
                 .cargo-content { padding: 15px; }
 
                 .basket-tools { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 8px; }
-                .tiny-btn { font-size: 10px; color: var(--mech-text-dim); cursor: pointer; background: none; border: none; padding: 0; }
+                .tiny-btn { font-size: 12px; color: var(--mech-text-dim); cursor: pointer; background: none; border: none; padding: 0; }
                 .tiny-btn:hover { color: var(--mech-accent); text-decoration: underline; }
 
                 .mech-basket .cc-basket-item {
@@ -683,7 +694,7 @@ const CC_STYLES = `
                 }
 
                 .thruster-pack {
-                    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+                    display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
                     margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--mech-border);
                 }
                 .thruster-btn {
